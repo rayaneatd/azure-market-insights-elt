@@ -1,7 +1,8 @@
-
+from src import *
+from main import *
 
 def run_full_pipeline():
-    print("Hello from azure-market-insights-elt!")
+    print("START PROJECT")
 
 
 if __name__ == "__main__":
