@@ -1,3 +1,6 @@
 __pycache__
 
 .env
+
+__azurite_db_*__
+*.azurite
