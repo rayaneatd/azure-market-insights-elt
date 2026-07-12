@@ -2,5 +2,5 @@ __pycache__
 
 .env
 
-__azurite_db_*__
+__azurite_db_*__.json
 *.azurite
