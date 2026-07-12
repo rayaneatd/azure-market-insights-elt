@@ -23,7 +23,7 @@ def init_blob_storage_client():
             storage_account_url = prod_STORAGE_ACCOUNT_URL
             account_credentials = DefaultAzureCredential()
         else:
-            raise UnknownEnvironment()
+            raise UnknownEnvironment("Unknown Environment.")
     except UnknownEnvironment as err:
         log_to_discord(str(err), level=AlertLevel.ERROR)
         exit(1)
