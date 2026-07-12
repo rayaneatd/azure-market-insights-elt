@@ -2,11 +2,11 @@ from src.handle_auth import *
 
 
 # authentification is managed only when the program starts
-init_blob_storage_client()
+blob_storage_client = init_blob_storage_client()
 
 # full code - orchestration is fully linear
 def run_full_pipeline():                                                                                                                                                                                                   
-    print(storage_account_url)
+    pass
 
 
 if __name__ == "__main__":
