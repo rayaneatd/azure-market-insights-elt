@@ -9,6 +9,7 @@ dependencies = [
     "azure-storage-blob>=12.30.0",
     "pandas>=3.0.3",
     "psycopg2-binary>=2.9.12",
+    "pydantic",
     "python-dotenv>=1.2.2",
     "requests>=2.34.2",
     "sqlalchemy>=2.0.51",
