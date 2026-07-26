@@ -1,0 +1,13 @@
+<mxfile host="65bd71144e">
+    <diagram id="gqDrIOPa7YQtKxe0mJYd" name="Page-1">
+        <mxGraphModel dx="788" dy="604" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="2" value="à faire :&lt;div&gt;&lt;span style=&quot;background-color: initial;&quot;&gt;- DESSINER LE SCHEMA ICI (via SQL integration etc)&amp;nbsp;&lt;/span&gt;&lt;/div&gt;&lt;div&gt;&lt;/div&gt;&lt;div&gt;- CREER DES CONTENEURS ADLS GEN2&amp;nbsp;&lt;/div&gt;" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=25;" parent="1" vertex="1">
+                    <mxGeometry x="130" y="150" width="640" height="100" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

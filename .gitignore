@@ -4,3 +4,5 @@ __pycache__
 
 __azurite_db_*__.json
 *.azurite
+
+notes perso.txt
