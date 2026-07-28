@@ -17,6 +17,7 @@ The pipeline runs every 5 minutes. `main.py` acts as the orchestrator and handle
 
 If anything goes wrong at any step, a Discord notification fires with enough context to debug it without looking at logs.
 
+![architecture](https://imgur.com/a/pnIp6ZN)
 ---
 
 ## The part I'm most proud of: adaptive schema management
