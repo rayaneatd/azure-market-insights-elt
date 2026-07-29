@@ -1,8 +1,8 @@
-from src.handle_auth import * 
-
+# pyrefly: ignore [missing-import]
+from src.handle_auth import init_datalake_service_client
 
 # authentification is managed only when the program starts
-blob_storage_client = init_blob_storage_client()
+datalake_service_client = init_datalake_service_client()
 
 # full code - orchestration is fully linear
 def run_full_pipeline():                                                                                                                                                                                                   
