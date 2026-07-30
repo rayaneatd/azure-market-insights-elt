@@ -7,8 +7,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 # Relative imports — always use relative imports inside a package to avoid
 # collisions with Python's built-in modules (e.g. Python has a built-in 'secrets' module)
 from ..secrets.project_credentials import (
-    dev_TWITCH_CLIENT_ID,  dev_TWITCH_ACCESS_TOKEN,
-    prod_TWITCH_CLIENT_ID, prod_TWITCH_ACCESS_TOKEN
+    TWITCH_CLIENT_ID,  TWITCH_CLIENT_SECRET
 )
 from ..utils.log_messages import log_to_discord, AlertLevel
 
@@ -132,8 +131,8 @@ def extract_igdb_data(url: str, query: str, timeout: int = 10) -> list:
     is_prod = os.getenv("ENVIRONMENT", "dev").strip().lower() == "prod"
 
     # Credentials resolved at call time for the same reason as IS_PROD above
-    client_id    = prod_TWITCH_CLIENT_ID    if is_prod else dev_TWITCH_CLIENT_ID
-    access_token = prod_TWITCH_ACCESS_TOKEN if is_prod else dev_TWITCH_ACCESS_TOKEN
+    client_id    = TWITCH_CLIENT_ID
+    access_token = TWITCH_CLIENT_SECRET
 
     # IGDB requires the Twitch Client-ID and a Bearer token for every request
     headers = {
