@@ -1,5 +1,7 @@
 import os
+import random
 import requests
+from email.utils import parsedate_to_datetime
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # Relative imports — always use relative imports inside a package to avoid
@@ -56,16 +58,21 @@ def _igdb_wait_strategy(retry_state):
     """
     Custom wait strategy:
     - For 429 errors, respect the Retry-After header if present.
-    - For everything else, fall back to exponential backoff.
+    - For everything else, fall back to exponential backoff with jitter.
+    
+    Jitter is added even on Retry-After to prevent the thundering herd problem:
+    if 50 workers all hit 429 at the same moment, they all receive the same
+    Retry-After value and would re-DDoS IGDB simultaneously without it.
     """
     exc = retry_state.outcome.exception()
 
     if isinstance(exc, IGDBRateLimitError) and exc.retry_after is not None:
-        # The server explicitly told us how long to wait — always respect it
-        return exc.retry_after
+        # Always respect Retry-After, but add a small random jitter to spread
+        # retries across time when many workers are throttled simultaneously.
+        return exc.retry_after + random.uniform(0, 1)
 
-    # Default: exponential backoff (1s → 2s → 4s → ... capped at 30s)
-    return wait_exponential(multiplier=1, min=1, max=30)(retry_state)
+    # Default: exponential backoff (1s → 2s → 4s → ... capped at 30s) + jitter
+    return wait_exponential(multiplier=1, min=1, max=30)(retry_state) + random.uniform(0, 1)
 
 
 # ================================================================
@@ -143,7 +150,13 @@ def extract_igdb_data(url: str, query: str, timeout: int = 10) -> list:
         # We then re-map it to our own typed exceptions for precise error handling.
         response.raise_for_status()
 
-        return response.json()
+        try:
+            return response.json()
+        except requests.exceptions.JSONDecodeError as e:
+            # The server returned a 2xx but not valid JSON (e.g. empty body, HTML error page).
+            # Wrap it in a typed exception so callers don't have to handle an untyped JSONDecodeError.
+            log_to_discord(f"IGDB returned invalid JSON: {e}", level=AlertLevel.ERROR)
+            raise IGDBApiError(f"Invalid JSON response from IGDB: {e}") from e
 
     except requests.exceptions.Timeout:
         # Re-raise as-is — Tenacity will catch it and schedule a retry
@@ -158,9 +171,24 @@ def extract_igdb_data(url: str, query: str, timeout: int = 10) -> list:
 
         if status == 429:
             # Read the Retry-After header so we wait exactly as long as the server asks.
-            # The header value is in seconds (an integer string, e.g. "5").
+            # The header can be either:
+            #   - a number of seconds: "5"   → we try float() first
+            #   - an HTTP date string:  "Wed, 30 Jul 2026 01:30:00 GMT" → we parse it
             retry_after_raw = response.headers.get("Retry-After")
-            retry_after = float(retry_after_raw) if retry_after_raw else None
+            retry_after: float | None = None
+            if retry_after_raw:
+                try:
+                    # Case 1: header is a plain number of seconds (most common)
+                    retry_after = float(retry_after_raw)
+                except ValueError:
+                    try:
+                        # Case 2: header is an HTTP date — compute remaining seconds
+                        from datetime import datetime, timezone
+                        target = parsedate_to_datetime(retry_after_raw)
+                        retry_after = max(0.0, (target - datetime.now(timezone.utc)).total_seconds())
+                    except Exception:
+                        # If all parsing fails, fall back to None and let exponential backoff handle it
+                        retry_after = None
 
             log_to_discord(
                 f"IGDB rate limit hit (429). Retry-After: {retry_after}s",
