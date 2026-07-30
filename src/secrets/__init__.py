@@ -7,5 +7,11 @@ from .project_environment import (
 )
 
 from .project_credentials import (
-    dev_STORAGE_ACCOUNT_URL, dev_STORAGE_CONNECTION_STRING, prod_STORAGE_ACCOUNT_URL
+    # azure storage credentials
+    dev_STORAGE_ACCOUNT_URL, dev_STORAGE_CONNECTION_STRING, 
+    prod_STORAGE_ACCOUNT_URL,
+    
+    # twitch credentials
+    dev_TWITCH_CLIENT_ID, dev_TWITCH_ACCESS_TOKEN,
+    prod_TWITCH_CLIENT_ID, prod_TWITCH_ACCESS_TOKEN
 )

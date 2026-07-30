@@ -6,16 +6,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# var
+# webhook url for discord that we get from the .env file
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 
-# enum
+# an Enum for alert levels (we can add more levels if needed)
 class AlertLevel(Enum):
     ERROR   = 'ERROR'
     WARNING = 'WARNING'
     INFO    = 'INFO'
 
-# functions
+# function to log messages to discord
+# (we can also use slack instead, we just need to refactor this function)
 def log_to_discord(msg: str, level: AlertLevel):
     
     data = {
