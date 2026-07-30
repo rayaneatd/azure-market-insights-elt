@@ -1,10 +1,9 @@
-# pyrefly: ignore [missing-import]
 import os 
 from dotenv import load_dotenv
 
 load_dotenv()
 
-PROJECT_ENVIRONMENT = os.getenv("ENVIRONMENT").upper()
+PROJECT_ENVIRONMENT = str(os.getenv("ENVIRONMENT")).upper()
 
     # Helpers
 IS_DEV  = PROJECT_ENVIRONMENT == "DEV"
