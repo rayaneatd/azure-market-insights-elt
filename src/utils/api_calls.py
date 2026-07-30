@@ -1,6 +1,6 @@
 import os
 import requests
-from tenacity import retry, stop_after_attempt, wait_exponential, wait_fixed, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # Relative imports — always use relative imports inside a package to avoid
 # collisions with Python's built-in modules (e.g. Python has a built-in 'secrets' module)
@@ -87,6 +87,9 @@ def _igdb_wait_strategy(retry_state):
 
     # Give up after 4 total attempts (1 original + 3 retries)
     stop=stop_after_attempt(4),
+    
+    # If the exception is not one of the retryable exceptions, re-raise it
+    reraise=True
 )
 def extract_igdb_data(url: str, query: str, timeout: int = 10) -> list:
     """
