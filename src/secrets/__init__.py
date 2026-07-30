@@ -12,6 +12,5 @@ from .project_credentials import (
     prod_STORAGE_ACCOUNT_URL,
     
     # twitch credentials
-    dev_TWITCH_CLIENT_ID, dev_TWITCH_ACCESS_TOKEN,
-    prod_TWITCH_CLIENT_ID, prod_TWITCH_ACCESS_TOKEN
+    TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET
 )

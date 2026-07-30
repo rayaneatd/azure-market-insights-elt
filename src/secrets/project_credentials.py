@@ -1,4 +1,3 @@
-# pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
 import os
 
@@ -9,12 +8,12 @@ load_dotenv()
 # ==================================================================
 
     # azure storage credentials
-dev_STORAGE_ACCOUNT_URL       = os.getenv("dev_STORAGE_ACCOUNT_URL").upper()
-dev_STORAGE_CONNECTION_STRING = os.getenv("dev_STORAGE_CONNECTION_STRING").upper()
+dev_STORAGE_ACCOUNT_URL       = os.getenv("dev_STORAGE_ACCOUNT_URL")
+dev_STORAGE_CONNECTION_STRING = os.getenv("dev_STORAGE_CONNECTION_STRING")
 
     # twitch credentials
-dev_TWITCH_CLIENT_ID    = os.getenv("dev_TWITCH_CLIENT_ID").upper()
-dev_TWITCH_ACCESS_TOKEN = os.getenv("dev_TWITCH_ACCESS_TOKEN").upper()
+TWITCH_CLIENT_ID              = os.getenv("TWITCH_CLIENT_ID")
+TWITCH_CLIENT_SECRET          = os.getenv("TWITCH_CLIENT_SECRET")
 
 
 # ==================================================================
@@ -22,11 +21,7 @@ dev_TWITCH_ACCESS_TOKEN = os.getenv("dev_TWITCH_ACCESS_TOKEN").upper()
 # ==================================================================
 
     # azure storage credentials
-prod_STORAGE_ACCOUNT_URL = os.getenv("prod_STORAGE_ACCOUNT_URL").upper()
-
-    # twitch credentials
-prod_TWITCH_CLIENT_ID    = os.getenv("prod_TWITCH_CLIENT_ID").upper()
-prod_TWITCH_ACCESS_TOKEN = os.getenv("prod_TWITCH_ACCESS_TOKEN").upper()
+prod_STORAGE_ACCOUNT_URL = os.getenv("prod_STORAGE_ACCOUNT_URL")
 
 
 # ==================================================================
