@@ -10,7 +10,7 @@ from ..secrets.project_credentials import (
     dev_TWITCH_CLIENT_ID,  dev_TWITCH_ACCESS_TOKEN,
     prod_TWITCH_CLIENT_ID, prod_TWITCH_ACCESS_TOKEN
 )
-from .log_messages import log_to_discord, AlertLevel
+from ..utils.log_messages import log_to_discord, AlertLevel
 
 
 # ================================================================
@@ -142,6 +142,7 @@ def extract_igdb_data(url: str, query: str, timeout: int = 10) -> list:
         "Content-Type":  "text/plain"
     }
 
+    response: requests.Response | None = None
     try:
         # IGDB uses POST requests: the Apicalypse query is sent as raw body data
         response = requests.post(url, headers=headers, data=query, timeout=timeout)
@@ -167,6 +168,7 @@ def extract_igdb_data(url: str, query: str, timeout: int = 10) -> list:
         raise
 
     except requests.exceptions.HTTPError as e:
+        assert response is not None  # response is always set before raise_for_status()
         status = response.status_code
 
         if status == 429:

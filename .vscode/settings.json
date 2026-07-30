@@ -1,0 +1,4 @@
+{
+    "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+    "pyrefly.pythonInterpreter": "${workspaceFolder}\\.venv\\Scripts\\python.exe"
+}
