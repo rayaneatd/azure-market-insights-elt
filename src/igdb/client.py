@@ -1,4 +1,3 @@
-import os
 import random
 import requests
 from email.utils import parsedate_to_datetime
@@ -124,11 +123,6 @@ def extract_igdb_data(url: str, query: str, timeout: int = 10) -> list:
         requests.exceptions.Timeout:         On timeout after all retries exhausted.
         requests.exceptions.ConnectionError: On connection failure after all retries.
     """
-
-    # IS_PROD is re-read from the environment at every call, not cached at import time.
-    # This is critical: if the env var changes (e.g. during tests or a live switch),
-    # importing IS_PROD at module level would silently keep the stale value forever.
-    is_prod = os.getenv("ENVIRONMENT", "dev").strip().lower() == "prod"
 
     # Credentials resolved at call time for the same reason as IS_PROD above
     client_id    = TWITCH_CLIENT_ID
