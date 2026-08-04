@@ -1,7 +1,33 @@
 from pydantic import BaseModel, ConfigDict, Field
 
-# Classe de base réutilisable avec détection dynamique de nouvelles colonnes (extra='allow')
+
+# Base class reusable with dynamic detection of new columns (extra='allow')
 class BaseIGDBSchema(BaseModel):
+
+    # instead of writing the fields manually, we use this method to get the fields from the model
+    # it makes more sense since these classes are the unique source of truth (SSOT) for the fields
+    @classmethod
+    def apicalypse_fields(cls):
+        return ", ".join(f.alias or name for name, f in cls.model_fields.items())
+
+    @classmethod
+    def build_query(cls, filters="", last_update_value=0, sort="id asc", limit=500, offset=0):
+        q = [f"fields {cls.apicalypse_fields()};"]
+        
+        # watermark
+        if last_update_value:
+            q.append(f"where updated_at > {last_update_value};")
+        if filters:
+            q.append(f"where {filters};") 
+        if sort:
+            q.append(f"sort {sort};")
+
+        q.append(f"limit {min(limit, 500)};")
+        if offset:
+            q.append(f"offset {offset};")
+        return " ".join(q)
+        
+    # configuration
     model_config = ConfigDict(extra='allow', populate_by_name=True)
 
 

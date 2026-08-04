@@ -1,6 +1,6 @@
 import requests
 from datetime import datetime, timedelta
-from src.secrets.project_credentials import (
+from ..secrets.project_credentials import (
     TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET
 )
 

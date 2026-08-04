@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # webhook url for discord that we get from the .env file
-DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
+DISCORD_WEBHOOK_URL = str(os.getenv("DISCORD_WEBHOOK_URL"))
 
 # an Enum for alert levels (we can add more levels if needed)
 class AlertLevel(Enum):

@@ -1,13 +1,8 @@
 import random
 import requests
+from .auth import TwitchAuth
 from email.utils import parsedate_to_datetime
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-
-# Relative imports — always use relative imports inside a package to avoid
-# collisions with Python's built-in modules (e.g. Python has a built-in 'secrets' module)
-from ..secrets.project_credentials import (
-    TWITCH_CLIENT_ID,  TWITCH_CLIENT_SECRET
-)
 from ..utils.log_messages import log_to_discord, AlertLevel
 
 
@@ -77,6 +72,8 @@ def _igdb_wait_strategy(retry_state):
 # API call functions
 # ================================================================
 
+twitch_auth = TwitchAuth()
+
 @retry(
     # Retry on transient network errors, rate limits (429), and server errors (5xx).
     # IGDBClientError (4xx) is NOT included — those are logic errors, never retry them.
@@ -125,13 +122,10 @@ def extract_igdb_data(url: str, query: str, timeout: int = 10) -> list:
     """
 
     # Credentials resolved at call time for the same reason as IS_PROD above
-    client_id    = TWITCH_CLIENT_ID
-    access_token = TWITCH_CLIENT_SECRET
-
     # IGDB requires the Twitch Client-ID and a Bearer token for every request
     headers = {
-        "Client-ID":     client_id,
-        "Authorization": f"Bearer {access_token}",
+        "Client-ID":     twitch_auth.client_id,
+        "Authorization": f"Bearer {twitch_auth.get_access_token()}",
         "Content-Type":  "text/plain"
     }
 

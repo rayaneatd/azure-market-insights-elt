@@ -2,8 +2,16 @@
 from azure.identity             import DefaultAzureCredential
 from azure.storage.filedatalake import DataLakeServiceClient
 
-from .secrets                   import *
-from .utils.log_messages        import *
+from .secrets                   import (
+    UnknownEnvironment, # exception
+
+    IS_DEV, IS_PROD, IS_TEST, # helpers
+
+    dev_STORAGE_CONNECTION_STRING, prod_STORAGE_ACCOUNT_URL # credentials
+)
+from .utils.log_messages        import (
+    AlertLevel, log_to_discord
+)
 
 # init variable
 datalake_service_client = None

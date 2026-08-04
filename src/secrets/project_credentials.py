@@ -8,15 +8,15 @@ load_dotenv()
 # ==================================================================
 
     # azure storage credentials
-dev_STORAGE_ACCOUNT_URL       = os.getenv("dev_STORAGE_ACCOUNT_URL")
-dev_STORAGE_CONNECTION_STRING = os.getenv("dev_STORAGE_CONNECTION_STRING")
+dev_STORAGE_ACCOUNT_URL       = str(os.getenv("dev_STORAGE_ACCOUNT_URL"))
+dev_STORAGE_CONNECTION_STRING = str(os.getenv("dev_STORAGE_CONNECTION_STRING"))
 
-prod_STORAGE_ACCOUNT_URL      = os.getenv("prod_STORAGE_ACCOUNT_URL")
+prod_STORAGE_ACCOUNT_URL      = str(os.getenv("prod_STORAGE_ACCOUNT_URL"))
 
 
     # twitch credentials
-TWITCH_CLIENT_ID              = os.getenv("TWITCH_CLIENT_ID")
-TWITCH_CLIENT_SECRET          = os.getenv("TWITCH_CLIENT_SECRET")
+TWITCH_CLIENT_ID              = str(os.getenv("TWITCH_CLIENT_ID"))
+TWITCH_CLIENT_SECRET          = str(os.getenv("TWITCH_CLIENT_SECRET"))
 
 
 
