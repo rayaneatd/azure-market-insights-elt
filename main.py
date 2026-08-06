@@ -11,11 +11,9 @@ datalake_service_client = init_datalake_service_client()
 def run_full_pipeline():                                                                                                                                                                                                   
     if datalake_service_client is None:
         log_to_discord("Error: Datalake service client not initialized", level=AlertLevel.ERROR)
-        return
+        return 
 
     do_ingestion(datalake_service_client)
-
-
 
 if __name__ == "__main__":
     run_full_pipeline()

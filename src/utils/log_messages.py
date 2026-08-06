@@ -20,11 +20,11 @@ class AlertLevel(Enum):
 def log_to_discord(msg: str, level: AlertLevel):
     
     data = {
-        "text": f'[{level.value}] {msg} - @everyone'
+        "content": f'[{level.value}] {msg} - @everyone'
     }
 
     response = requests.post(DISCORD_WEBHOOK_URL, json=data)
 
-        #? in case the request didn't make it
-    if response.status_code != 204: 
+    # In case the request didn't make it (Discord returns 200 or 204 on success)
+    if response.status_code not in (200, 204): 
         print(f"Erreur envoi Discord: {response.text}")

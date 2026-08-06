@@ -1,14 +1,23 @@
+from typing import ClassVar
 from pydantic import BaseModel, ConfigDict, Field
 
+# we can modify the version of the API by changing this variable
+BASE_IGDB_URL = "https://api.igdb.com/v4"
 
 # Base class reusable with dynamic detection of new columns (extra='allow')
 class BaseIGDBSchema(BaseModel):
+
+    # metadata
+    _endpoint: ClassVar[str]
+    _starting_point: ClassVar[int] = 0 # by default we start in the year 2020
+    _limit: ClassVar[int] = 500
+    _offset: ClassVar[int] = 0
 
     # instead of writing the fields manually, we use this method to get the fields from the model
     # it makes more sense since these classes are the unique source of truth (SSOT) for the fields
     @classmethod
     def apicalypse_fields(cls):
-        return ", ".join(f.alias or name for name, f in cls.model_fields.items())
+        return ", ".join(f.alias or name for name, f in cls.model_fields.items() if not name.startswith("_"))
 
     @classmethod
     def build_query(cls, filters="", last_update_value=0, sort="id asc", limit=500, offset=0):
@@ -33,6 +42,8 @@ class BaseIGDBSchema(BaseModel):
 
 # 1. Endpoint: /games
 class GameSchema(BaseIGDBSchema):
+    _endpoint = "/games"
+
     id: int
     name: str
     slug: str | None = None
@@ -75,6 +86,8 @@ class GameSchema(BaseIGDBSchema):
 
 # 2. Endpoint: /release_dates
 class ReleaseDateSchema(BaseIGDBSchema):
+    _endpoint = "/release_dates"
+    
     id: int
     game: int | None = None
     platform: int | None = None
@@ -92,6 +105,8 @@ class ReleaseDateSchema(BaseIGDBSchema):
 
 # 3. Endpoint: /genres
 class GenreSchema(BaseIGDBSchema):
+    _endpoint = "/genres"
+    
     id: int
     name: str
     slug: str | None = None
@@ -103,6 +118,8 @@ class GenreSchema(BaseIGDBSchema):
 
 # 4. Endpoint: /platforms
 class PlatformSchema(BaseIGDBSchema):
+    _endpoint = "/platforms"
+    
     id: int
     name: str
     slug: str | None = None
@@ -118,6 +135,8 @@ class PlatformSchema(BaseIGDBSchema):
 
 # 5. Endpoint: /companies
 class CompanySchema(BaseIGDBSchema):
+    _endpoint = "/companies"
+    
     id: int
     name: str
     slug: str | None = None
