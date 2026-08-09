@@ -31,14 +31,13 @@ class TokenBucket:
             amount (int): The number of tokens to acquire.
         """
 
+        if amount > self.capacity:
+            raise ValueError("amount > capacity")
         while True:
             with self.lock:
                 self._refill()
                 if self.tokens >= amount:
                     self.tokens -= amount
-                    return 
-                
-                # if we don't have enough tokens, calculate the wait time
-                needed = amount - self.tokens
-                wait = needed / self.fill_rate
+                    return
+                wait = (amount - self.tokens) / self.fill_rate
             sleep(wait)
