@@ -1,7 +1,6 @@
 # pyrefly: ignore [missing-import]
 import json
 import traceback
-
 from src.igdb.client import extract_igdb_data
 from src.igdb.rate_limit import TokenBucket
 from src.tables_schema import *
@@ -26,7 +25,6 @@ from src.utils.datalake_interaction import (
 # IGDB API rate limit: 4 requests per second.
 # TokenBucket ensures we do not exceed this limit.
 bucket = TokenBucket(capacity=4, fill_rate=4)
-BASE_IGDB_URL = "https://api.igdb.com/v4/"  # Adjust if defined elsewhere
 
 
 def _construct_tables_dict(azure_client: DataLakeServiceClient | BlobServiceClient) -> dict[type, int]:
