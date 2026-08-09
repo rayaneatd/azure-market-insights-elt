@@ -22,7 +22,9 @@ import json
 #    }
 
 
-# pagination logic
+# we fetch the watermark from ADLS then build the dict automatically
+# this is done to avoid having to manually update the watermark
+# and to ensure that we don't miss any tables
 def _construct_tables_dict(azure_client: DataLakeServiceClient | BlobServiceClient) -> dict[type, int]:
     """
     Automatically manages the watermark state on each invocation:
@@ -52,7 +54,8 @@ def _construct_tables_dict(azure_client: DataLakeServiceClient | BlobServiceClie
     return {cls: watermark_str[cls.__name__] for cls in defined_classes}
 
 
-
+# this is the main function that will do the ingestion
+# pagination logic will be handled here
 def do_ingestion(azure_client: DataLakeServiceClient | BlobServiceClient):
     
     tables = _construct_tables_dict(azure_client)
