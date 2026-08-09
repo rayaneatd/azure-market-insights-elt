@@ -35,7 +35,8 @@ class BaseIGDBSchema(BaseModel):
     @classmethod
     def build_query(
         cls, 
-        last_update_value: int = 0, 
+        last_update_value: int = 0,
+        last_id: int = 0, 
         filters: str = "", 
         sort: str = "updated_at asc, id asc", 
         limit: int = 500, 
@@ -59,7 +60,7 @@ class BaseIGDBSchema(BaseModel):
         
         # If a timestamp is provided, filter for records updated after that timestamp
         if last_update_value:
-            where_conditions.append(f"updated_at > {last_update_value}")
+            where_conditions.append(f"(updated_at > {last_update_value} | (updated_at = {last_update_value} & id > {last_id}))")
             
         # Append any additional custom filters passed to the method
         if filters:
