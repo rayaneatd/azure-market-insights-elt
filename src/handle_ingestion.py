@@ -3,6 +3,7 @@ from src.igdb.client import extract_igdb_data
 from src.tables_schema import *
 
 from azure.storage.filedatalake import DataLakeServiceClient
+from azure.storage.blob import BlobServiceClient
 from src.utils.datalake_interaction import (
     read_from_raw,
     write_into_raw,
@@ -22,7 +23,7 @@ import json
 
 
 # pagination logic
-def _construct_tables_dict(azure_client: DataLakeServiceClient) -> dict[type, int]:
+def _construct_tables_dict(azure_client: DataLakeServiceClient | BlobServiceClient) -> dict[type, int]:
     """
     Automatically manages the watermark state on each invocation:
     - Performs 1 systematic read from ADLS.
@@ -52,14 +53,14 @@ def _construct_tables_dict(azure_client: DataLakeServiceClient) -> dict[type, in
 
 
 
-def do_ingestion(azure_client: DataLakeServiceClient):
+def do_ingestion(azure_client: DataLakeServiceClient | BlobServiceClient):
     
     tables = _construct_tables_dict(azure_client)
 
     for Class in BaseIGDBSchema.__subclasses__():
         endpoint = f"{BASE_IGDB_URL}{Class._endpoint}"
 
-        print(f"{endpoint}: {tables[Class]}\n")
+        print(f"{endpoint}: {Class.__name__}\n")
 
         # pagination logic bla bla
         

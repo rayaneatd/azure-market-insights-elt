@@ -1,6 +1,7 @@
 # pyrefly: ignore [missing-import]
 from azure.identity             import DefaultAzureCredential
 from azure.storage.filedatalake import DataLakeServiceClient
+from azure.storage.blob         import BlobServiceClient
 
 from .secrets                   import (
     UnknownEnvironment, # exception
@@ -17,20 +18,21 @@ from .utils.log_messages        import (
 datalake_service_client = None
 
 # function
-def init_datalake_service_client() -> DataLakeServiceClient | None:
+def init_datalake_service_client() -> DataLakeServiceClient | BlobServiceClient | None:
     """
     Initialize the datalake service client depending on the project's environment.
     
+    Dev  -> BlobServiceClient (Azurite: blob API is fully emulated)
+    Prod -> DataLakeServiceClient (real ADLS Gen2 DFS)
+
     Returns:
-        DataLakeServiceClient | None: The datalake service client.
+        DataLakeServiceClient | BlobServiceClient | None
     """
     try:
-        # setup credentials depending on the project's environment
         if IS_DEV:
             print("project initialized for dev")
-            
-                # blob service client creation
-            return DataLakeServiceClient.from_connection_string(dev_STORAGE_CONNECTION_STRING)
+            # Azurite: BlobServiceClient because DFS write ops are broken in SDK 12.25+
+            return BlobServiceClient.from_connection_string(dev_STORAGE_CONNECTION_STRING, api_version="2023-11-03")
 
         elif IS_PROD or IS_TEST:
             print("project deployed for production" if IS_PROD else "project is being tested")

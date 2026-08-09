@@ -9,7 +9,7 @@ class BaseIGDBSchema(BaseModel):
 
     # metadata
     _endpoint: ClassVar[str]
-    _starting_point: ClassVar[int] = 0 # by default we start in the year 2020
+    _starting_point: ClassVar[int] = 1577836800 # by default we start in the year 2020
     _limit: ClassVar[int] = 500
     _offset: ClassVar[int] = 0
 
