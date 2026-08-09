@@ -3,39 +3,86 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # we can modify the version of the API by changing this variable
 BASE_IGDB_URL = "https://api.igdb.com/v4"
+STARTING_TIMESTAMP_IGDB_TABLES = 1577836800 # by default we start in the year 2020
 
 # Base class reusable with dynamic detection of new columns (extra='allow')
 class BaseIGDBSchema(BaseModel):
 
     # metadata
     _endpoint: ClassVar[str]
-    _starting_point: ClassVar[int] = 1577836800 # by default we start in the year 2020
+    _starting_point: ClassVar[int] = STARTING_TIMESTAMP_IGDB_TABLES
     _limit: ClassVar[int] = 500
     _offset: ClassVar[int] = 0
 
     # instead of writing the fields manually, we use this method to get the fields from the model
     # it makes more sense since these classes are the unique source of truth (SSOT) for the fields
-    @classmethod
-    def apicalypse_fields(cls):
-        return ", ".join(f.alias or name for name, f in cls.model_fields.items() if not name.startswith("_"))
 
     @classmethod
-    def build_query(cls, filters="", last_update_value=0, sort="id asc", limit=500, offset=0):
-        q = [f"fields {cls.apicalypse_fields()};"]
+    def apicalypse_fields(cls) -> str:
+        """
+        Generates a comma-separated string of all fields defined in the schema
+        to be used in the IGDB Apicalypse query.
         
-        # watermark
+        It uses the field's alias if defined (e.g., for custom mappings) 
+        and excludes any private metadata fields starting with an underscore.
+        """
+        return ", ".join(
+            field.alias or name 
+            for name, field in cls.model_fields.items() 
+            if not name.startswith("_")
+        )
+
+    @classmethod
+    def build_query(
+        cls, 
+        last_update_value: int = 0, 
+        filters: str = "", 
+        sort: str = "updated_at asc, id asc", 
+        limit: int = 500, 
+        offset: int = 0
+    ) -> str:
+        """
+        Constructs a complete Apicalypse query string for the IGDB API.
+        
+        Parameters:
+        - last_update_value: Unix timestamp to fetch only records updated after this date.
+        - filters: Additional custom Apicalypse filter conditions (e.g., "platforms = (48)").
+        - sort: Sorting criteria (defaults to ascending order of update time).
+        - limit: Maximum number of records to return (capped at 500).
+        - offset: Number of records to skip for pagination.
+        """
+        # Start the query by specifying which fields to retrieve
+        query_parts = [f"fields {cls.apicalypse_fields()};"]
+
+        # Build the 'where' clause conditions
+        where_conditions = []
+        
+        # If a timestamp is provided, filter for records updated after that timestamp
         if last_update_value:
-            q.append(f"where updated_at > {last_update_value};")
+            where_conditions.append(f"updated_at > {last_update_value}")
+            
+        # Append any additional custom filters passed to the method
         if filters:
-            q.append(f"where {filters};") 
-        if sort:
-            q.append(f"sort {sort};")
+            where_conditions.append(f"({filters})")
+            
+        # If there are any conditions, join them with the '&' operator and add to the query
+        if where_conditions:
+            query_parts.append(f"where {' & '.join(where_conditions)};")
 
-        q.append(f"limit {min(limit, 500)};")
-        if offset:
-            q.append(f"offset {offset};")
-        return " ".join(q)
+        # Add sorting if specified
+        if sort:
+            query_parts.append(f"sort {sort};")
+            
+        # Add limit, ensuring it does not exceed the maximum allowed limit of 500
+        query_parts.append(f"limit {min(limit, 500)};")
         
+        # Add offset for pagination if it is greater than 0
+        if offset:
+            query_parts.append(f"offset {offset};")
+
+        # Combine all parts into a single space-separated query string
+        return " ".join(query_parts)
+
     # configuration
     model_config = ConfigDict(extra='allow', populate_by_name=True)
 

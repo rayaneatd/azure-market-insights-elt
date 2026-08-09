@@ -6,25 +6,28 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# webhook url for discord that we get from the .env file
+# Discord webhook URL retrieved from the environment configuration
 DISCORD_WEBHOOK_URL = str(os.getenv("DISCORD_WEBHOOK_URL"))
 
-# an Enum for alert levels (we can add more levels if needed)
-class AlertLevel(Enum):
-    ERROR   = 'ERROR'
-    WARNING = 'WARNING'
-    INFO    = 'INFO'
 
-# function to log messages to discord
-# (we can also use slack instead, we just need to refactor this function)
+# Enumeration representing the severity levels for alerts
+class AlertLevel(Enum):
+    ERROR = "ERROR"
+    WARNING = "WARNING"
+    INFO = "INFO"
+
+
 def log_to_discord(msg: str, level: AlertLevel):
-    
-    data = {
-        "content": f'[{level.value}] {msg} - @everyone'
-    }
+    """Sends a formatted alert message to a Discord channel using a webhook.
+
+    Args:
+        msg (str): The message content to be logged.
+        level (AlertLevel): The severity level of the alert.
+    """
+    data = {"content": f"[{level.value}] {msg} - @everyone"}
 
     response = requests.post(DISCORD_WEBHOOK_URL, json=data)
 
-    # In case the request didn't make it (Discord returns 200 or 204 on success)
-    if response.status_code not in (200, 204): 
+    # Verify if the webhook request was successful (Discord returns 200 or 204)
+    if response.status_code not in (200, 204):
         print(f"Erreur envoi Discord: {response.text}")
