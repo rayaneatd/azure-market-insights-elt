@@ -191,7 +191,7 @@ def extract_igdb_data(url: str, query: str, timeout: int = 10) -> list:
             raise IGDBServerError(str(e))
 
         # 4xx (excluding 429) — logic/caller error, retrying is pointless
-        log_to_discord(f"IGDB client error ({status}): {e}", level=AlertLevel.ERROR)
+        log_to_discord(f"IGDB client error ({status}): {e} | Body: {response.text}", level=AlertLevel.ERROR)
         raise IGDBClientError(str(e))
 
     except requests.exceptions.RequestException as e:

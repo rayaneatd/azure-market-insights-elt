@@ -120,7 +120,14 @@ def do_ingestion(azure_client: DataLakeServiceClient | BlobServiceClient) -> Non
                 bucket.acquire()
 
                 query = Model.build_query(last_update_value=cursor, last_id=last_id, offset=offset)
+
+                #! DEBUG ONLY
+                print(f"QUERY [{Model.__name__}]: {query!r}", flush=True)
+                log_to_discord(f"QUERY [{Model.__name__}]: {query!r}", level=AlertLevel.INFO)
+
                 batch = extract_igdb_data(url=f"{BASE_IGDB_URL}{Model._endpoint}", query=query, timeout=10)
+
+                # breaks the loop if the batch is empty
                 if not batch:
                     break
 
@@ -160,8 +167,10 @@ def do_ingestion(azure_client: DataLakeServiceClient | BlobServiceClient) -> Non
                     offset = 0
 
         except Exception as e:
-            log_to_discord(
-                msg=f"Failed to ingest {Model.__name__}: {e}\n{traceback.format_exc()}",
-                level=AlertLevel.ERROR
-            )
+            tb = traceback.format_exc()
+            msg = f"Unexpected failure ingesting {Model.__name__}: {e}\n{tb}"
+            max_len = 1900
+            if len(msg) > max_len:
+                msg = msg[:200] + "\n...\n" + msg[-(max_len - 200):]
+            log_to_discord(msg=f"```\n{msg}\n```", level=AlertLevel.WARNING)
             continue

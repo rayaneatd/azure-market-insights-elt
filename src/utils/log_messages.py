@@ -24,7 +24,12 @@ def log_to_discord(msg: str, level: AlertLevel):
         msg (str): The message content to be logged.
         level (AlertLevel): The severity level of the alert.
     """
-    data = {"content": f"[{level.value}] {msg} - @everyone"}
+    content = f"[{level.value}] {msg}"
+
+    if level == AlertLevel.ERROR:
+        content += " @everyone"
+
+    data = {"content": content}
 
     response = requests.post(DISCORD_WEBHOOK_URL, json=data)
 

@@ -2,6 +2,7 @@ from typing import ClassVar
 from pydantic import BaseModel, ConfigDict, Field
 
 # we can modify the version of the API by changing this variable
+#! NEVER PUT A SLASH AT THE END OF THE URL
 BASE_IGDB_URL = "https://api.igdb.com/v4"
 STARTING_TIMESTAMP_IGDB_TABLES = 1577836800 # by default we start in the year 2020
 
@@ -38,7 +39,7 @@ class BaseIGDBSchema(BaseModel):
         last_update_value: int = 0,
         last_id: int = 0, 
         filters: str = "", 
-        sort: str = "updated_at asc, id asc", 
+        sort: str = "updated_at asc", #! MULTI SORTING IS NOT SUPPORTED BY IGDB API, so we sort by updated_at first 
         limit: int = 500, 
         offset: int = 0
     ) -> str:
@@ -60,7 +61,7 @@ class BaseIGDBSchema(BaseModel):
         
         # If a timestamp is provided, filter for records updated after that timestamp
         if last_update_value:
-            where_conditions.append(f"(updated_at > {last_update_value} | (updated_at = {last_update_value} & id > {last_id}))")
+            where_conditions.append(f"updated_at >= {last_update_value}")
             
         # Append any additional custom filters passed to the method
         if filters:
