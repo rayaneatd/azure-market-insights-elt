@@ -200,3 +200,6 @@ class CompanySchema(BaseIGDBSchema):
 
 
 
+#^ import for postgres later 
+class TechnicalSchema:
+    pass

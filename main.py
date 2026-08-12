@@ -7,6 +7,10 @@ from src.handle_ingestion import do_ingestion
 # authentification is managed only when the program starts
 datalake_service_client = init_datalake_service_client()
 
+#^ we handle the engine here but we create a custom function (like with the service client), 
+#^ we need to create database_auth.py
+database_engine = None
+
 # full code - orchestration is fully linear
 def run_full_pipeline():                                                                                                                                                                                                   
     if datalake_service_client is None:
