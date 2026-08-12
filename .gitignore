@@ -6,3 +6,5 @@ __azurite_db_*__.json
 *.azurite
 
 notes perso.txt
+
+tests/private/*
