@@ -1,7 +1,9 @@
+import os
 # pyrefly: ignore [missing-import]
 from src.datalake_service_client import init_datalake_service_client
 from src.database_auth import init_database_engine
 from src.utils.log_messages import log_to_discord, AlertLevel  # pyrefly: ignore [missing-import]
+from src.utils.database_interaction import execute_sql_from_file
 
 from src.handle_ingestion import do_ingestion
 
@@ -19,7 +21,15 @@ def run_full_pipeline():
         log_to_discord("Error: Database engine not initialized", level=AlertLevel.ERROR)
         return
 
-    do_ingestion(datalake_service_client)
+    # Ensure log tables schema is applied before ingestion
+    try:
+        ddl_path = os.path.join(os.path.dirname(__file__), "app/sql/log_schemas.sql")
+        execute_sql_from_file(database_engine, ddl_path)
+    except Exception as e:
+        log_to_discord(f"Critical error applying database migrations: {e}", level=AlertLevel.ERROR)
+        return
+
+    do_ingestion(datalake_service_client, database_engine)
 
 if __name__ == "__main__":
     run_full_pipeline()

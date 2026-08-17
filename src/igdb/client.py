@@ -1,5 +1,6 @@
 import random
-import requests
+import httpx
+import msgspec
 from .auth import TwitchAuth
 from email.utils import parsedate_to_datetime
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -78,8 +79,8 @@ twitch_auth = TwitchAuth()
     # Retry on transient network errors, rate limits (429), and server errors (5xx).
     # IGDBClientError (4xx) is NOT included — those are logic errors, never retry them.
     retry=retry_if_exception_type((
-        requests.exceptions.Timeout,
-        requests.exceptions.ConnectionError,
+        httpx.TimeoutException,
+        httpx.ConnectError,
         IGDBRateLimitError,
         IGDBServerError,
     )),
@@ -117,66 +118,56 @@ def extract_igdb_data(url: str, query: str, timeout: int = 10) -> list:
         IGDBClientError:    On unrecoverable 4xx errors (bad query, unauthorized, etc.)
         IGDBRateLimitError: On 429 after all retry attempts are exhausted.
         IGDBServerError:    On 5xx after all retry attempts are exhausted.
-        requests.exceptions.Timeout:         On timeout after all retries exhausted.
-        requests.exceptions.ConnectionError: On connection failure after all retries.
+        httpx.TimeoutException: On timeout after all retries exhausted.
+        httpx.ConnectError:     On connection failure after all retries.
     """
 
-    # Credentials resolved at call time for the same reason as IS_PROD above
-    # IGDB requires the Twitch Client-ID and a Bearer token for every request
+    # Credentials resolved at call time to always reflect current environment
     headers = {
         "Client-ID":     twitch_auth.client_id,
         "Authorization": f"Bearer {twitch_auth.get_access_token()}",
         "Content-Type":  "text/plain"
     }
 
-    response: requests.Response | None = None
+    response: httpx.Response | None = None
     try:
-        # IGDB uses POST requests: the Apicalypse query is sent as raw body data
-        response = requests.post(url, headers=headers, data=query, timeout=timeout)
+        # IGDB uses POST requests: the Apicalypse query is sent as raw body content
+        response = httpx.post(url, headers=headers, content=query, timeout=timeout)
 
-        # raise_for_status() raises an HTTPError for any 4xx or 5xx response.
-        # We then re-map it to our own typed exceptions for precise error handling.
+        # raise_for_status() raises an HTTPStatusError for any 4xx or 5xx response.
         response.raise_for_status()
 
         try:
-            return response.json()
-        except requests.exceptions.JSONDecodeError as e:
-            # The server returned a 2xx but not valid JSON (e.g. empty body, HTML error page).
-            # Wrap it in a typed exception so callers don't have to handle an untyped JSONDecodeError.
+            return msgspec.json.decode(response.content)
+        except msgspec.DecodeError as e:
+            # Server returned 2xx but not valid JSON
             log_to_discord(f"IGDB returned invalid JSON: {e}", level=AlertLevel.ERROR)
             raise IGDBApiError(f"Invalid JSON response from IGDB: {e}") from e
 
-    except requests.exceptions.Timeout:
+    except httpx.TimeoutException:
         # Re-raise as-is — Tenacity will catch it and schedule a retry
         raise
 
-    except requests.exceptions.ConnectionError:
+    except httpx.ConnectError:
         # Re-raise as-is — Tenacity will catch it and schedule a retry
         raise
 
-    except requests.exceptions.HTTPError as e:
-        assert response is not None  # response is always set before raise_for_status()
+    except httpx.HTTPStatusError as e:
+        assert response is not None
         status = response.status_code
 
         if status == 429:
-            # Read the Retry-After header so we wait exactly as long as the server asks.
-            # The header can be either:
-            #   - a number of seconds: "5"   → we try float() first
-            #   - an HTTP date string:  "Wed, 30 Jul 2026 01:30:00 GMT" → we parse it
             retry_after_raw = response.headers.get("Retry-After")
             retry_after: float | None = None
             if retry_after_raw:
                 try:
-                    # Case 1: header is a plain number of seconds (most common)
                     retry_after = float(retry_after_raw)
                 except ValueError:
                     try:
-                        # Case 2: header is an HTTP date — compute remaining seconds
                         from datetime import datetime, timezone
                         target = parsedate_to_datetime(retry_after_raw)
                         retry_after = max(0.0, (target - datetime.now(timezone.utc)).total_seconds())
                     except Exception:
-                        # If all parsing fails, fall back to None and let exponential backoff handle it
                         retry_after = None
 
             log_to_discord(
@@ -186,15 +177,13 @@ def extract_igdb_data(url: str, query: str, timeout: int = 10) -> list:
             raise IGDBRateLimitError(str(e), retry_after=retry_after)
 
         if status >= 500:
-            # Server-side error — potentially transient, Tenacity will retry
             log_to_discord(f"IGDB server error ({status}): {e}", level=AlertLevel.WARNING)
             raise IGDBServerError(str(e))
 
-        # 4xx (excluding 429) — logic/caller error, retrying is pointless
+        # 4xx (excluding 429)
         log_to_discord(f"IGDB client error ({status}): {e} | Body: {response.text}", level=AlertLevel.ERROR)
         raise IGDBClientError(str(e))
 
-    except requests.exceptions.RequestException as e:
-        # Catch-all for any other requests error (DNS failure, SSL error, etc.)
+    except httpx.RequestError as e:
         log_to_discord(f"IGDB request error: {e}", level=AlertLevel.ERROR)
         raise

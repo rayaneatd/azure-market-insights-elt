@@ -1,6 +1,9 @@
 # pyrefly: ignore [missing-import]
 import json
 import traceback
+import uuid
+import time
+from sqlalchemy.engine import Engine
 from src.igdb.client import extract_igdb_data
 from src.igdb.rate_limit import TokenBucket
 from src.tables_schema import *
@@ -8,61 +11,74 @@ from src.utils.log_messages import AlertLevel, log_to_discord
 from azure.storage.filedatalake import DataLakeServiceClient
 from azure.storage.blob import BlobServiceClient
 from src.utils.datalake_interaction import (
-    read_from_raw,
     write_into_raw,
     Containers
 )
-
-# Example structure of the watermark JSON stored in ADLS:
-# {
-#     "games": 1754361600,
-#     "release_dates": 1754361600,
-#     "genres": 1754361600,
-#     "platforms": 1754361600,
-#     "companies": 1754361600
-# }
+from src.utils.database_interaction import (
+    start_ingestion_run,
+    complete_ingestion_run,
+    get_checkpoints,
+    upsert_checkpoint,
+    upsert_fallback_checkpoint,
+    log_batch
+)
 
 # IGDB API rate limit: 4 requests per second.
 # TokenBucket ensures we do not exceed this limit.
 bucket = TokenBucket(capacity=4, fill_rate=4)
 
 
-def _construct_tables_dict(azure_client: DataLakeServiceClient | BlobServiceClient) -> dict[type, int]:
+def _construct_tables_dict(db_engine: Engine) -> dict[type, dict]:
     """
-    Retrieves the current watermark state from ADLS and maps it to the schema classes.
+    Retrieves checkpoints from Postgres and resolves starting metadata for each table class.
+    Returns:
+        dict[type, dict]: Map of Model -> {
+            "cursor": int,
+            "last_id": int,
+            "offset": int,
+            "is_override": bool
+        }
     """
-    defined_classes: list[type] = BaseIGDBSchema.__subclasses__()
+    defined_classes = BaseIGDBSchema.__subclasses__()
+    checkpoints = get_checkpoints(db_engine)
 
-    raw = read_from_raw(azure_client, Containers.Control.value, "watermark.json")
-    watermark_str: dict = json.loads(raw) if raw else {}
+    resolved = {}
+    for cls in defined_classes:
+        name = cls.__name__
+        if name not in checkpoints:
+            # Create a default checkpoint in PostgreSQL
+            upsert_checkpoint(
+                engine=db_engine,
+                table_name=name,
+                current_watermark=cls._starting_point,
+                last_id=0,
+                offset_val=0,
+                run_id=None,
+                is_override_active=False
+            )
+            # Fetch newly created entry to match structure
+            checkpoints = get_checkpoints(db_engine)
 
-    missing = [cls for cls in defined_classes if cls.__name__ not in watermark_str]
+        ckpt = checkpoints[name]
+        if ckpt["is_override_active"]:
+            resolved[cls] = {
+                "cursor": ckpt["fallback_watermark"],
+                "last_id": 0,
+                "offset": 0,
+                "is_override": True
+            }
+        else:
+            resolved[cls] = {
+                "cursor": ckpt["current_watermark"],
+                "last_id": ckpt["last_id"],
+                "offset": ckpt["offset_val"],
+                "is_override": False
+            }
 
-    if missing:
-        for cls in missing:
-            watermark_str[cls.__name__] = cls._starting_point
-        write_into_raw(
-            azure_client,
-            Containers.Control.value,
-            "watermark.json",
-            json.dumps(watermark_str).encode()
-        )
-
-    return {cls: watermark_str[cls.__name__] for cls in defined_classes}
-
-
-def _persist_watermark(azure_client, tables: dict[type, int]) -> None:
-    """Small helper to avoid duplicating the serialization logic at every checkpoint."""
-    final = {cls.__name__: ts for cls, ts in tables.items()}
-    write_into_raw(
-        azure_client,
-        Containers.Control.value,
-        "watermark.json",
-        json.dumps(final).encode()
-    )
+    return resolved
 
 
-def _save_raw_batch(azure_client, Model, batch: list[dict], cursor: int, offset: int) -> None:
+def _save_raw_batch(azure_client: DataLakeServiceClient | BlobServiceClient, Model: type, batch: list[dict], cursor: int, offset: int) -> None:
     """
     Persists a raw page of records to the bronze/raw zone in ADLS.
     Path pattern keeps pages uniquely addressable and roughly time-ordered.
@@ -70,7 +86,7 @@ def _save_raw_batch(azure_client, Model, batch: list[dict], cursor: int, offset:
     path = f"{Model._endpoint}/{cursor}_{offset}.json"
     write_into_raw(
         azure_client,
-        Containers.Data.value, 
+        Containers.Data.value,
         path,
         json.dumps(batch).encode()
     )
@@ -79,98 +95,145 @@ def _save_raw_batch(azure_client, Model, batch: list[dict], cursor: int, offset:
 def ingest_batches_to_postgres(azure_client: DataLakeServiceClient | BlobServiceClient) -> None:
     """
     PLACEHOLDER — future implementation.
-
-    This function will be triggered on a cumulative 8-minute schedule (separate from
-    do_ingestion) to read newly landed raw/bronze batches from ADLS and load them into
-    Postgres (upsert by id, dedup, schema mapping, etc.).
-
-    Not wired up yet: intentionally left as a no-op so the trigger/scheduler can be
-    plugged in without touching do_ingestion's contract.
+    Reads newly landed raw/bronze batches from ADLS and loads them into Postgres.
     """
-    # TODO: implement batch ingestion into Postgres
     pass
 
 
-def do_ingestion(azure_client: DataLakeServiceClient | BlobServiceClient) -> None:
+def do_ingestion(azure_client: DataLakeServiceClient | BlobServiceClient, db_engine: Engine) -> None:
     """
     Main ingestion pipeline. Iterates through all defined schemas, fetches data
     from the IGDB API using pagination, persists raw batches to ADLS, and updates
-    the watermark state after each page (not just at the end of a table) so that
-    a failure mid-table doesn't lose progress.
-
-    Pagination logic:
-    - Uses offset-based pagination (limit 500 per request).
-    - If offset reaches 10,000 (IGDB limit), shifts the query cursor to the max
-      `updated_at` timestamp seen so far and resets the offset to 0.
-
-    Note: retry/backoff on transient API errors is handled inside extract_igdb_data.
-    The try/except here is a safety net for non-transient failures (bad data,
-    logic errors, unexpected exceptions) so one table's failure doesn't kill the run.
+    the watermark state in Postgres after each page.
     """
-    tables = _construct_tables_dict(azure_client)
+    run_id = str(uuid.uuid4())
+    start_ingestion_run(db_engine, run_id)
 
-    for Model, watermark in tables.items():
-        cursor = watermark
-        last_id = 0
-        offset = 0
-        max_seen = watermark
+    run_status = "COMPLETED"
+    run_error = None
 
-        try:
-            while True:
-                bucket.acquire()
+    try:
+        tables = _construct_tables_dict(db_engine)
 
-                query = Model.build_query(last_update_value=cursor, last_id=last_id, offset=offset)
+        for Model, meta in tables.items():
+            cursor = meta["cursor"]
+            last_id = meta["last_id"]
+            offset = meta["offset"]
+            max_seen = cursor
 
-                #! DEBUG ONLY
-                print(f"QUERY [{Model.__name__}]: {query!r}", flush=True)
-                log_to_discord(f"QUERY [{Model.__name__}]: {query!r}", level=AlertLevel.INFO)
+            # Consume override flag immediately in the DB if active
+            if meta["is_override"]:
+                upsert_checkpoint(
+                    engine=db_engine,
+                    table_name=Model.__name__,
+                    current_watermark=cursor,
+                    last_id=last_id,
+                    offset_val=offset,
+                    run_id=run_id,
+                    is_override_active=False
+                )
 
-                batch = extract_igdb_data(url=f"{BASE_IGDB_URL}{Model._endpoint}", query=query, timeout=10)
+            try:
+                while True:
+                    bucket.acquire()
 
-                # breaks the loop if the batch is empty
-                if not batch:
-                    break
+                    query = Model.build_query(
+                        last_update_value=cursor,
+                        last_id=last_id,
+                        offset=offset
+                    )
 
-                # Validate records before using them — fail loud and clear rather than
-                # a bare KeyError buried in a max() generator expression.
-                for record in batch:
-                    if "updated_at" not in record or "id" not in record:
-                        raise ValueError(
-                            f"Record missing 'updated_at' or 'id' for {Model.__name__}: {record}"
+                    print(f"QUERY [{Model.__name__}]: {query!r}", flush=True)
+                    log_to_discord(f"QUERY [{Model.__name__}]: {query!r}", level=AlertLevel.INFO)
+
+                    start_time = time.perf_counter()
+                    batch = []
+                    batch_status = "SUCCESS"
+                    batch_err = None
+
+                    try:
+                        batch = extract_igdb_data(
+                            url=f"{BASE_IGDB_URL}{Model._endpoint}",
+                            query=query,
+                            timeout=10
+                        )
+                    except Exception as extract_err:
+                        batch_status = "FAILED"
+                        batch_err = str(extract_err)
+                        raise
+                    finally:
+                        elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+                        log_batch(
+                            engine=db_engine,
+                            run_id=run_id,
+                            table_name=Model.__name__,
+                            layer="RAW",
+                            status=batch_status,
+                            cursor_value=cursor,
+                            offset_value=offset,
+                            records_count=len(batch) if batch else 0,
+                            duration_ms=elapsed_ms,
+                            query_sent=query,
+                            error_message=batch_err
                         )
 
-                # Persist the raw page to the bronze zone before advancing the cursor,
-                # so a crash between fetch and checkpoint never leaves a "seen but not saved" page.
-                _save_raw_batch(azure_client, Model, batch, cursor, offset)
+                    if not batch:
+                        # Clean finish of records; update fallback state to safety point
+                        upsert_fallback_checkpoint(db_engine, Model.__name__, max_seen)
+                        break
 
-                batch_max_ts = max(r["updated_at"] for r in batch)
-                batch_max_id_for_ts = max(r["id"] for r in batch if r["updated_at"] == batch_max_ts)
+                    # Validate records
+                    for record in batch:
+                        if "updated_at" not in record or "id" not in record:
+                            raise ValueError(
+                                f"Record missing 'updated_at' or 'id' for {Model.__name__}: {record}"
+                            )
 
-                if batch_max_ts > max_seen:
-                    max_seen = batch_max_ts
-                    last_id = batch_max_id_for_ts
-                else:
-                    last_id = max(last_id, batch_max_id_for_ts)
+                    # Persist raw page to ADLS Raw zone
+                    _save_raw_batch(azure_client, Model, batch, cursor, offset)
 
-                # Checkpoint after every successful page: update in-memory state and
-                # flush it to ADLS immediately, instead of waiting for the whole table.
-                tables[Model] = max_seen
-                _persist_watermark(azure_client, tables)
+                    batch_max_ts = max(r["updated_at"] for r in batch)
+                    batch_max_id_for_ts = max(r["id"] for r in batch if r["updated_at"] == batch_max_ts)
 
-                if len(batch) < 500:
-                    break
+                    if batch_max_ts > max_seen:
+                        max_seen = batch_max_ts
+                        last_id = batch_max_id_for_ts
+                    else:
+                        last_id = max(last_id, batch_max_id_for_ts)
 
-                offset += 500
+                    # Update progressive checkpoint after every successful page
+                    upsert_checkpoint(
+                        engine=db_engine,
+                        table_name=Model.__name__,
+                        current_watermark=max_seen,
+                        last_id=last_id,
+                        offset_val=offset,
+                        run_id=run_id
+                    )
 
-                if offset >= 10000:
-                    cursor = max_seen
-                    offset = 0
+                    if len(batch) < 500:
+                        # Success complete
+                        upsert_fallback_checkpoint(db_engine, Model.__name__, max_seen)
+                        break
 
-        except Exception as e:
-            tb = traceback.format_exc()
-            msg = f"Unexpected failure ingesting {Model.__name__}: {e}\n{tb}"
-            max_len = 1900
-            if len(msg) > max_len:
-                msg = msg[:200] + "\n...\n" + msg[-(max_len - 200):]
-            log_to_discord(msg=f"```\n{msg}\n```", level=AlertLevel.WARNING)
-            continue
+                    offset += 500
+                    if offset >= 10000:
+                        cursor = max_seen
+                        offset = 0
+
+            except Exception as e:
+                run_status = "FAILED"
+                tb = traceback.format_exc()
+                msg = f"Unexpected failure ingesting {Model.__name__}: {e}\n{tb}"
+                max_len = 1900
+                if len(msg) > max_len:
+                    msg = msg[:200] + "\n...\n" + msg[-(max_len - 200):]
+                log_to_discord(msg=f"```\n{msg}\n```", level=AlertLevel.WARNING)
+                continue
+
+    except Exception as e:
+        run_status = "FAILED"
+        run_error = str(e)
+        log_to_discord(f"Pipeline orchestration run failed: {e}", level=AlertLevel.ERROR)
+    finally:
+        complete_ingestion_run(db_engine, run_id, run_status, run_error)

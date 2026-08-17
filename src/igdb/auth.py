@@ -1,4 +1,4 @@
-import requests
+import httpx
 from datetime import datetime, timedelta
 from ..secrets.project_credentials import (
     TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET
@@ -25,9 +25,10 @@ class TwitchAuth:
             "client_secret": self.client_secret,
             "grant_type": "client_credentials"
         }
-        response = requests.post(url, params=params, timeout=10)
+        response = httpx.post(url, params=params, timeout=10)
         response.raise_for_status()
-        data = response.json()
+        import msgspec
+        data = msgspec.json.decode(response.content)
         self.access_token = data["access_token"]
         self.expires_at = datetime.now() + timedelta(seconds=data["expires_in"])
         self.token_type = data["token_type"]
