@@ -1,5 +1,4 @@
 import patito as pt
-from pydantic import ConfigDict
 from typing import ClassVar
 
 
@@ -26,10 +25,14 @@ class BaseIGDBSchema(pt.Model):
     _limit: ClassVar[int] = 500
     _offset: ClassVar[int] = 0
 
-    model_config = ConfigDict(
-        extra="allow",         # Allows IGDB to return unknown columns (schema drift)
-        populate_by_name=True  # Allows instantiation by field name even if alias is set
-    )
+
+    # ConfigDict is a Pydantic v2 class for configuring Pydantic models
+    # It is used to configure the behavior of the model
+    #TODO: i need to edit this later to handle soft changes my way
+    model_config = {
+        "extra": 'allow', # allows IGDB to return unknown columns
+        "populate_by_name": True # allows instantiation by field name even if alias is set
+    }
 
     @classmethod
     def apicalypse_fields(cls) -> str:
