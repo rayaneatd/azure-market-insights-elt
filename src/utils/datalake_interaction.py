@@ -100,6 +100,3 @@ def read_from_analytics(engine, table_name: str):
         table_name (str): The table name.
     """
     pass
-
-# NOTE: those functions will also be used to interact with the watermark tables/files
-# those are still "dumb functions" and that's the point

@@ -1,0 +1,58 @@
+-- Create logs schema
+CREATE SCHEMA IF NOT EXISTS logs;
+-- Table to track overall ingestion runs and orchestrations
+CREATE TABLE IF NOT EXISTS logs.ingestion_runs (
+    run_id UUID PRIMARY KEY,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMPTZ,
+    status VARCHAR(20) NOT NULL DEFAULT 'RUNNING',
+    -- 'RUNNING', 'COMPLETED', 'FAILED'
+    error_message TEXT
+);
+-- Table for Watermarks, Checkpoints and Fallback active/manual state
+CREATE TABLE IF NOT EXISTS logs.ingestion_checkpoints (
+    table_name VARCHAR(100) PRIMARY KEY,
+    current_watermark BIGINT NOT NULL DEFAULT 0,
+    fallback_watermark BIGINT NOT NULL DEFAULT 0,
+    last_id INT NOT NULL DEFAULT 0,
+    offset_val INT NOT NULL DEFAULT 0,
+    is_override_active BOOLEAN NOT NULL DEFAULT FALSE,
+    last_successful_run_id UUID REFERENCES logs.ingestion_runs(run_id),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+-- Table to log every batch fetch attempt (success or failure)
+CREATE TABLE IF NOT EXISTS logs.batch_logs (
+    batch_id BIGSERIAL PRIMARY KEY,
+    run_id UUID NOT NULL REFERENCES logs.ingestion_runs(run_id),
+    table_name VARCHAR(100) NOT NULL,
+    layer VARCHAR(20) NOT NULL,
+    -- 'RAW' or 'ANALYTICS'
+    status VARCHAR(20) NOT NULL,
+    -- 'SUCCESS' or 'FAILED'
+    cursor_value BIGINT NOT NULL,
+    offset_value INT NOT NULL,
+    records_count INT NOT NULL DEFAULT 0,
+    duration_ms INT NOT NULL DEFAULT 0,
+    query_sent TEXT,
+    error_message TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+-- Table to audit and alert schema drift
+CREATE TABLE IF NOT EXISTS logs.schema_history (
+    id BIGSERIAL PRIMARY KEY,
+    table_name VARCHAR(100) NOT NULL,
+    column_name VARCHAR(100) NOT NULL,
+    data_type VARCHAR(50),
+    detected_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    detected_in_run_id UUID REFERENCES logs.ingestion_runs(run_id),
+    included_at TIMESTAMPTZ,
+    -- popule quand patch dans tables_schema.py
+    status VARCHAR(30) NOT NULL DEFAULT 'NEW_COLUMN',
+    -- 'NEW_COLUMN', 'BREAKING_CHANGE', 'QUARANTINE'
+    action_taken TEXT
+);
+-- Indexes for performance tuning in operational dashboard / API
+CREATE INDEX IF NOT EXISTS idx_ingestion_runs_status ON logs.ingestion_runs(status);
+CREATE INDEX IF NOT EXISTS idx_batch_logs_run_id ON logs.batch_logs(run_id);
+CREATE INDEX IF NOT EXISTS idx_batch_logs_table_created ON logs.batch_logs(table_name, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_schema_history_table ON logs.schema_history(table_name);

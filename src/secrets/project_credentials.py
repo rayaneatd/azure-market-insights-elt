@@ -19,6 +19,18 @@ TWITCH_CLIENT_ID              = str(os.getenv("TWITCH_CLIENT_ID"))
 TWITCH_CLIENT_SECRET          = str(os.getenv("TWITCH_CLIENT_SECRET"))
 
 
+    # postgres credentials
+DEV_POSTGRES_USER                 = str(os.getenv("DEV_POSTGRES_USER"))
+DEV_POSTGRES_PASSWORD             = str(os.getenv("DEV_POSTGRES_PASSWORD"))
+DEV_POSTGRES_HOST                 = str(os.getenv("DEV_POSTGRES_HOST"))
+DEV_POSTGRES_PORT                 = str(os.getenv("DEV_POSTGRES_PORT"))
+DEV_POSTGRES_DB                   = str(os.getenv("DEV_POSTGRES_DB"))
+
+PROD_POSTGRES_USER                = str(os.getenv("PROD_POSTGRES_USER"))
+PROD_POSTGRES_PASSWORD            = str(os.getenv("PROD_POSTGRES_PASSWORD"))
+PROD_POSTGRES_HOST                = str(os.getenv("PROD_POSTGRES_HOST"))
+PROD_POSTGRES_PORT                = str(os.getenv("PROD_POSTGRES_PORT"))
+PROD_POSTGRES_DB                  = str(os.getenv("PROD_POSTGRES_DB"))
 
 # ==================================================================
 # *********** EXCEPTIONS *******************************************

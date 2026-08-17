@@ -70,7 +70,7 @@ def _save_raw_batch(azure_client, Model, batch: list[dict], cursor: int, offset:
     path = f"{Model._endpoint}/{cursor}_{offset}.json"
     write_into_raw(
         azure_client,
-        Containers.Data.value,  # adapte le nom du container si besoin
+        Containers.Data.value, 
         path,
         json.dumps(batch).encode()
     )
