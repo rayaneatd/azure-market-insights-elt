@@ -5,6 +5,8 @@ CREATE TABLE IF NOT EXISTS logs.ingestion_runs (
     run_id UUID PRIMARY KEY,
     started_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMPTZ,
+    layer VARCHAR(20) NOT NULL,
+    -- 'RAW' or 'ANALYTICS'
     status VARCHAR(20) NOT NULL DEFAULT 'RUNNING',
     -- 'RUNNING', 'COMPLETED', 'FAILED'
     error_message TEXT
@@ -15,10 +17,28 @@ CREATE TABLE IF NOT EXISTS logs.ingestion_checkpoints (
     current_watermark BIGINT NOT NULL DEFAULT 0,
     fallback_watermark BIGINT NOT NULL DEFAULT 0,
     last_id INT NOT NULL DEFAULT 0,
+    layer VARCHAR(20) NOT NULL,
+    -- 'RAW' or 'ANALYTICS'
     offset_val INT NOT NULL DEFAULT 0,
     is_override_active BOOLEAN NOT NULL DEFAULT FALSE,
     last_successful_run_id UUID REFERENCES logs.ingestion_runs(run_id),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS logs.fallback_events (
+    event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    table_name VARCHAR(100) NOT NULL,
+    layer VARCHAR(20) NOT NULL DEFAULT 'RAW',
+    -- 'RAW' or 'ANALYTICS'
+    start_watermark BIGINT NOT NULL,
+    -- Timestamp Unix début
+    end_watermark BIGINT NOT NULL,
+    -- Timestamp Unix fin
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    -- PENDING, IN_PROGRESS, COMPLETED, FAILED
+    records_processed INT DEFAULT 0,
+    error_message TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMPTZ
 );
 -- Table to log every batch fetch attempt (success or failure)
 CREATE TABLE IF NOT EXISTS logs.batch_logs (
@@ -52,7 +72,8 @@ CREATE TABLE IF NOT EXISTS logs.schema_history (
     action_taken TEXT
 );
 -- Indexes for performance tuning in operational dashboard / API
-CREATE INDEX IF NOT EXISTS idx_ingestion_runs_status ON logs.ingestion_runs(status);
-CREATE INDEX IF NOT EXISTS idx_batch_logs_run_id ON logs.batch_logs(run_id);
-CREATE INDEX IF NOT EXISTS idx_batch_logs_table_created ON logs.batch_logs(table_name, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ingestion_runs_status ON logs.ingestion_runs(status, layer);
+CREATE INDEX IF NOT EXISTS idx_batch_logs_run_id ON logs.batch_logs(run_id, layer);
+CREATE INDEX IF NOT EXISTS idx_batch_logs_table_created ON logs.batch_logs(table_name, layer, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_schema_history_table ON logs.schema_history(table_name);
+CREATE INDEX IF NOT EXISTS idx_fallback_events_status ON logs.fallback_events(status, created_at DESC);

@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Azure Market Insights — ELT Governance Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
+    <!-- FULL SCREEN LOGIN LOCK SCREEN -->
+    <div id="full-login-screen" class="full-screen-login">
+        <div class="login-card">
+            <div class="login-logo">🌐</div>
+            <h2>IGDB Governance</h2>
+            <p>Connexion requise pour accéder au Control Plane</p>
+
+            <form onsubmit="handleLoginSubmit(event)">
+                <div class="form-group">
+                    <label for="login-username">Identifiant</label>
+                    <input type="text" id="login-username" class="form-input" placeholder="ex: admin ou visitor"
+                        required>
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Mot de passe</label>
+                    <input type="password" id="login-password" class="form-input" placeholder="••••••••" required>
+                </div>
+                <button type="submit" class="btn-aero btn-primary"
+                    style="width:100%; padding:12px; margin-top:8px; font-size:14px;">
+                    🚀 Se Connecter
+                </button>
+            </form>
+
+        </div>
+    </div>
+
+    <!-- MAIN DASHBOARD WRAPPER (HIDDEN UNTIL AUTHENTICATED) -->
+    <div id="main-dashboard-wrapper" style="display: none;">
+        <div class="container">
+            <!-- Aero Header -->
+            <header class="aero-header">
+                <div class="logo-area">
+                    <div class="logo-icon">🌐</div>
+                    <div class="logo-text">
+                        <h1>IGDB ELT Governance</h1>
+                        <p>Azure Data Lake & PostgreSQL Control Plane</p>
+                    </div>
+                </div>
+                <div class="header-status">
+                    <div id="user-profile-area" class="user-badge">
+                        <span id="user-info-text">Chargement compte...</span>
+                    </div>
+                    <button class="btn-aero btn-primary" onclick="refreshAllData()">🔄 Actualiser</button>
+                </div>
+            </header>
+
+            <!-- KPI Header Grid -->
+            <div class="kpi-grid">
+                <div class="kpi-card">
+                    <div class="kpi-title">Runs Totaux</div>
+                    <div class="kpi-value" id="kpi-total-runs">-</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-title">Succès / Échecs</div>
+                    <div class="kpi-value" id="kpi-success-failed">- / -</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-title">Overrides Actifs</div>
+                    <div class="kpi-value" id="kpi-active-overrides" style="color: #f39c12;">-</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-title">Total Objets Ingérés</div>
+                    <div class="kpi-value" id="kpi-records-count" style="color: #00b4db;">-</div>
+                </div>
+            </div>
+
+            <!-- Main Glass Panel -->
+            <main class="main-panel">
+                <div class="tabs-bar">
+                    <button class="tab-btn active" onclick="switchTab('tab-runs', this)">🚀 Ingestion Runs</button>
+                    <button class="tab-btn" onclick="switchTab('tab-checkpoints', this)">⚙️ Checkpoints &
+                        Fallback</button>
+                    <button class="tab-btn" onclick="switchTab('tab-batches', this)">📜 Logs de Batchs</button>
+                    <button class="tab-btn" onclick="switchTab('tab-schema', this)">🔍 Schema Drift Audit</button>
+                </div>
+
+                <!-- TAB 1: Ingestion Runs -->
+                <section id="tab-runs" class="tab-content active">
+                    <div class="filter-toolbar">
+                        <input type="text" id="filter-runs-search" class="filter-input"
+                            placeholder="🔍 Rechercher Run ID / Erreur..." oninput="renderRunsTable()">
+                        <select id="filter-runs-status" class="filter-select" onchange="renderRunsTable()">
+                            <option value="ALL">Tous les statuts</option>
+                            <option value="COMPLETED">COMPLETED</option>
+                            <option value="RUNNING">RUNNING</option>
+                            <option value="FAILED">FAILED</option>
+                        </select>
+                        <span id="runs-count-badge" class="badge" style="background:#e2e8f0; color:#475569;">0
+                            éléments</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="aero-table">
+                            <thead>
+                                <tr>
+                                    <th class="sortable" onclick="sortData('runs', 'run_id')">Run ID ⇕</th>
+                                    <th class="sortable" onclick="sortData('runs', 'layer')">Layer ⇕</th>
+                                    <th class="sortable" onclick="sortData('runs', 'status')">Statut ⇕</th>
+                                    <th class="sortable" onclick="sortData('runs', 'started_at')">Début ⇕</th>
+                                    <th class="sortable" onclick="sortData('runs', 'completed_at')">Fin ⇕</th>
+                                    <th class="sortable" onclick="sortData('runs', 'duration_seconds')">Durée ⇕</th>
+                                    <th>Message d'erreur</th>
+                                </tr>
+                            </thead>
+                            <tbody id="runs-tbody">
+                                <tr>
+                                    <td colspan="7" style="text-align:center;">Chargement...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- TAB 2: Checkpoints & Event-Driven Fallback Queue -->
+                <section id="tab-checkpoints" class="tab-content">
+                    <div
+                        style="display:flex; justify-shadow:space-between; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                        <h3 style="font-size:16px; color:var(--text-main);">📋 File d'Attente des Événements Fallback
+                        </h3>
+                        <button class="btn-aero btn-warning" onclick="openFallbackEventModal()">➕ Créer un Événement
+                            Fallback</button>
+                    </div>
+
+                    <div class="table-responsive" style="margin-bottom: 24px;">
+                        <table class="aero-table">
+                            <thead>
+                                <tr>
+                                    <th>Event ID</th>
+                                    <th>Table</th>
+                                    <th>Start Watermark (Début)</th>
+                                    <th>End Watermark (Fin)</th>
+                                    <th>Statut</th>
+                                    <th>Objets Traités</th>
+                                    <th>Erreur</th>
+                                    <th>Créé Le</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fallback-events-tbody">
+                                <tr>
+                                    <td colspan="8" style="text-align:center;">Chargement de la file d'attente...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <h3 style="font-size:16px; color:var(--text-main); margin-bottom:12px;">📍 Index des Checkpoints
+                        Incrémentaux Continu</h3>
+                    <div class="filter-toolbar">
+                        <input type="text" id="filter-ckpt-search" class="filter-input"
+                            placeholder="🔍 Rechercher Table..." oninput="renderCheckpointsTable()">
+                        <span id="ckpt-count-badge" class="badge" style="background:#e2e8f0; color:#475569;">0
+                            tables</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="aero-table">
+                            <thead>
+                                <tr>
+                                    <th class="sortable" onclick="sortData('checkpoints', 'table_name')">Table ⇕</th>
+                                    <th class="sortable" onclick="sortData('checkpoints', 'current_watermark')">
+                                        Watermark Actuel ⇕</th>
+                                    <th class="sortable" onclick="sortData('checkpoints', 'fallback_watermark')">
+                                        Fallback Safety ⇕</th>
+                                    <th class="sortable" onclick="sortData('checkpoints', 'last_id')">Dernier ID ⇕</th>
+                                    <th class="sortable" onclick="sortData('checkpoints', 'offset_val')">Offset ⇕</th>
+                                    <th class="sortable" onclick="sortData('checkpoints', 'updated_at')">Dernière Maj ⇕
+                                    </th>
+                                    <th>Action Quick Replay</th>
+                                </tr>
+                            </thead>
+                            <tbody id="checkpoints-tbody">
+                                <tr>
+                                    <td colspan="7" style="text-align:center;">Chargement...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- TAB 3: Batch Logs -->
+                <section id="tab-batches" class="tab-content">
+                    <div class="filter-toolbar">
+                        <input type="text" id="filter-batches-search" class="filter-input"
+                            placeholder="🔍 Rechercher Table / Requête..." oninput="renderBatchesTable()">
+                        <select id="filter-batches-status" class="filter-select" onchange="renderBatchesTable()">
+                            <option value="ALL">Tous les statuts</option>
+                            <option value="SUCCESS">SUCCESS</option>
+                            <option value="FAILED">FAILED</option>
+                        </select>
+                        <span id="batches-count-badge" class="badge" style="background:#e2e8f0; color:#475569;">0
+                            batchs</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="aero-table">
+                            <thead>
+                                <tr>
+                                    <th class="sortable" onclick="sortData('batches', 'batch_id')">ID ⇕</th>
+                                    <th class="sortable" onclick="sortData('batches', 'table_name')">Table ⇕</th>
+                                    <th class="sortable" onclick="sortData('batches', 'status')">Statut ⇕</th>
+                                    <th class="sortable" onclick="sortData('batches', 'cursor_value')">Cursor Value ⇕
+                                    </th>
+                                    <th class="sortable" onclick="sortData('batches', 'offset_value')">Offset ⇕</th>
+                                    <th class="sortable" onclick="sortData('batches', 'records_count')">Objets ⇕</th>
+                                    <th class="sortable" onclick="sortData('batches', 'duration_ms')">Durée (ms) ⇕</th>
+                                    <th>Requête Apicalypse</th>
+                                    <th class="sortable" onclick="sortData('batches', 'created_at')">Horodatage ⇕</th>
+                                </tr>
+                            </thead>
+                            <tbody id="batches-tbody">
+                                <tr>
+                                    <td colspan="9" style="text-align:center;">Chargement...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- TAB 4: Schema History -->
+                <section id="tab-schema" class="tab-content">
+                    <div class="filter-toolbar">
+                        <input type="text" id="filter-schema-search" class="filter-input"
+                            placeholder="🔍 Rechercher Table / Colonne..." oninput="renderSchemaTable()">
+                    </div>
+                    <div class="table-responsive">
+                        <table class="aero-table">
+                            <thead>
+                                <tr>
+                                    <th class="sortable" onclick="sortData('schema', 'id')">ID ⇕</th>
+                                    <th class="sortable" onclick="sortData('schema', 'table_name')">Table ⇕</th>
+                                    <th class="sortable" onclick="sortData('schema', 'column_name')">Colonne Détectée ⇕
+                                    </th>
+                                    <th>Type de Donnée</th>
+                                    <th class="sortable" onclick="sortData('schema', 'detected_at')">Détecté Le ⇕</th>
+                                    <th>Run ID</th>
+                                    <th>Statut</th>
+                                </tr>
+                            </thead>
+                            <tbody id="schema-tbody">
+                                <tr>
+                                    <td colspan="7" style="text-align:center;">Chargement...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <!-- Modal Trigger Fallback Event -->
+    <div class="modal-overlay" id="fallback-modal">
+        <div class="modal-card">
+            <h3>Planifier un Événement Fallback</h3>
+            <p style="font-size:12px; color:var(--text-muted); margin-bottom:16px;">Définissez une plage temporelle
+                (timestamps Unix) à rejouer pour la table sélectionnée.</p>
+            <div class="form-group">
+                <label for="modal-fallback-table">Table Cible</label>
+                <select id="modal-fallback-table" class="form-input">
+                    <option value="GameSchema">GameSchema (IGDB Games)</option>
+                    <option value="FranchiseSchema">FranchiseSchema</option>
+                    <option value="PlatformSchema">PlatformSchema</option>
+                    <option value="GenreSchema">GenreSchema</option>
+                    <option value="CompanySchema">CompanySchema</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="modal-start-watermark">Start Watermark (Timestamp Unix Début)</label>
+                <input type="number" id="modal-start-watermark" class="form-input"
+                    placeholder="ex: 1577836800 (1 Jan 2020)">
+            </div>
+            <div class="form-group">
+                <label for="modal-end-watermark">End Watermark (Timestamp Unix Fin)</label>
+                <input type="number" id="modal-end-watermark" class="form-input"
+                    placeholder="ex: 1609459200 (1 Jan 2021)">
+            </div>
+            <div class="modal-actions">
+                <button class="btn-aero" style="background: #cbd5e1; color: #334155;"
+                    onclick="closeFallbackModal()">Annuler</button>
+                <button class="btn-aero btn-warning" onclick="submitFallbackEvent()">🚀 Créer Événement (Admin)</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let rawData = { runs: [], checkpoints: [], batches: [], schema: [] };
+        let sortState = { key: null, asc: true };
+        let currentUser = { logged_in: false, username: null, role: null };
+
+        function switchTab(tabId, btn) {
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            btn.classList.add('active');
+        }
+
+        function formatDate(tsStr) {
+            if (!tsStr) return '-';
+            const d = new Date(tsStr);
+            return d.toLocaleString('fr-FR');
+        }
+
+        function formatUnix(ts) {
+            if (!ts) return '0';
+            const d = new Date(ts * 1000);
+            return `${ts} (${d.toLocaleDateString('fr-FR')})`;
+        }
+
+        function fillPreset(username, password) {
+            document.getElementById('login-username').value = username;
+            document.getElementById('login-password').value = password;
+        }
+
+        async function handleLoginSubmit(event) {
+            event.preventDefault();
+            const username = document.getElementById('login-username').value;
+            const password = document.getElementById('login-password').value;
+
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await res.json();
+                if (res.ok) {
+                    checkUserSession();
+                } else {
+                    alert('Erreur: ' + data.error);
+                }
+            } catch (e) { alert('Erreur connexion: ' + e); }
+        }
+
+        async function logout() {
+            await fetch('/api/logout', { method: 'POST' });
+            checkUserSession();
+        }
+
+        async function checkUserSession() {
+            try {
+                const res = await fetch('/api/me');
+                currentUser = await res.json();
+
+                const loginScreen = document.getElementById('full-login-screen');
+                const dashboardWrapper = document.getElementById('main-dashboard-wrapper');
+                const profileArea = document.getElementById('user-info-text');
+
+                if (currentUser.logged_in) {
+                    loginScreen.style.display = 'none';
+                    dashboardWrapper.style.display = 'block';
+
+                    const roleClass = currentUser.role === 'ADMIN' ? 'role-admin' : 'role-viewer';
+                    profileArea.innerHTML = `
+                    <span>👤 <strong>${currentUser.username}</strong></span>
+                    <span class="user-role-tag ${roleClass}">${currentUser.role}</span>
+                    <button class="btn-aero" style="padding: 2px 8px; font-size:11px; margin-left:6px;" onclick="logout()">Déconnexion</button>
+                `;
+                    loadStats();
+                    loadRuns();
+                    loadFallbackEvents();
+                    loadCheckpoints();
+                    loadBatches();
+                    loadSchemaHistory();
+                } else {
+                    loginScreen.style.display = 'flex';
+                    dashboardWrapper.style.display = 'none';
+                }
+            } catch (e) { console.error(e); }
+        }
+
+        function sortData(section, key) {
+            if (sortState.key === key) {
+                sortState.asc = !sortState.asc;
+            } else {
+                sortState.key = key;
+                sortState.asc = true;
+            }
+
+            rawData[section].sort((a, b) => {
+                let valA = (a[key] !== null && a[key] !== undefined) ? a[key] : '';
+                let valB = (b[key] !== null && b[key] !== undefined) ? b[key] : '';
+                if (typeof valA === 'string') valA = valA.toLowerCase();
+                if (typeof valB === 'string') valB = valB.toLowerCase();
+                if (valA < valB) return sortState.asc ? -1 : 1;
+                if (valA > valB) return sortState.asc ? 1 : -1;
+                return 0;
+            });
+
+            if (section === 'runs') renderRunsTable();
+            if (section === 'checkpoints') renderCheckpointsTable();
+            if (section === 'batches') renderBatchesTable();
+            if (section === 'schema') renderSchemaTable();
+        }
+
+        async function loadStats() {
+            try {
+                const res = await fetch('/api/stats');
+                const data = await res.json();
+                document.getElementById('kpi-total-runs').textContent = data.total_runs || 0;
+                document.getElementById('kpi-success-failed').textContent = `${data.successful_runs || 0} / ${data.failed_runs || 0}`;
+                document.getElementById('kpi-active-overrides').textContent = data.active_overrides || 0;
+                document.getElementById('kpi-records-count').textContent = (data.total_records_ingested || 0).toLocaleString();
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadRuns() {
+            try {
+                const res = await fetch('/api/runs');
+                rawData.runs = await res.json();
+                renderRunsTable();
+            } catch (e) { console.error(e); }
+        }
+
+        function renderRunsTable() {
+            const search = document.getElementById('filter-runs-search').value.toLowerCase();
+            const status = document.getElementById('filter-runs-status').value;
+
+            const filtered = rawData.runs.filter(r => {
+                const matchSearch = r.run_id.toLowerCase().includes(search) || (r.error_message || '').toLowerCase().includes(search);
+                const matchStatus = status === 'ALL' || r.status === status;
+                return matchSearch && matchStatus;
+            });
+
+            document.getElementById('runs-count-badge').textContent = `${filtered.length} élément(s)`;
+            const tbody = document.getElementById('runs-tbody');
+            if (!filtered.length) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">Aucun run correspondant.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = filtered.map(r => {
+                const badgeClass = r.status === 'COMPLETED' ? 'badge-success' : (r.status === 'RUNNING' ? 'badge-running' : 'badge-failed');
+                return `
+                <tr>
+                    <td><code>${r.run_id}</code></td>
+                    <td><span class="badge" style="background:#e0f7fa; color:#006064;">${r.layer}</span></td>
+                    <td><span class="badge ${badgeClass}">${r.status}</span></td>
+                    <td>${formatDate(r.started_at)}</td>
+                    <td>${formatDate(r.completed_at)}</td>
+                    <td>${r.duration_seconds !== null ? r.duration_seconds + 's' : '-'}</td>
+                    <td style="color:#d32f2f;">${r.error_message || '-'}</td>
+                </tr>
+            `;
+            }).join('');
+        }
+
+        async function loadCheckpoints() {
+            try {
+                const res = await fetch('/api/checkpoints');
+                rawData.checkpoints = await res.json();
+                renderCheckpointsTable();
+            } catch (e) { console.error(e); }
+        }
+
+        function renderCheckpointsTable() {
+            const search = document.getElementById('filter-ckpt-search').value.toLowerCase();
+            const status = document.getElementById('filter-ckpt-status').value;
+
+            const filtered = rawData.checkpoints.filter(c => {
+                const matchSearch = c.table_name.toLowerCase().includes(search);
+                const mode = c.is_override_active ? 'OVERRIDE' : 'INCRÉMENTAL';
+                const matchStatus = status === 'ALL' || mode === status;
+                return matchSearch && matchStatus;
+            });
+
+            document.getElementById('ckpt-count-badge').textContent = `${filtered.length} table(s)`;
+            const tbody = document.getElementById('checkpoints-tbody');
+            if (!filtered.length) {
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">Aucun checkpoint correspondant.</td></tr>';
+                return;
+            }
+
+            const isAdmin = currentUser.logged_in && currentUser.role === 'ADMIN';
+
+            tbody.innerHTML = filtered.map(c => `
+            <tr>
+                <td><strong>${c.table_name}</strong></td>
+                <td>${formatUnix(c.current_watermark)}</td>
+                <td>${formatUnix(c.fallback_watermark)}</td>
+                <td>${c.last_id}</td>
+                <td>${c.offset_val}</td>
+                <td>
+                    ${c.is_override_active ?
+                    '<span class="badge badge-override">OVERRIDE READY</span>' :
+                    '<span class="badge badge-success">INCRÉMENTAL</span>'}
+                </td>
+                <td>${formatDate(c.updated_at)}</td>
+                <td>
+                    ${isAdmin ?
+                    `<button class="btn-aero btn-warning" onclick="openOverrideModal('${c.table_name}')">⚡ Fallback</button>` :
+                    `<span class="badge badge-disabled" title="Seul un Administrateur peut déclencher un fallback">🔒 Admin Requis</span>`}
+                </td>
+            </tr>
+        `).join('');
+        }
+
+        async function loadBatches() {
+            try {
+                const res = await fetch('/api/batches');
+                rawData.batches = await res.json();
+                renderBatchesTable();
+            } catch (e) { console.error(e); }
+        }
+
+        function renderBatchesTable() {
+            const search = document.getElementById('filter-batches-search').value.toLowerCase();
+            const status = document.getElementById('filter-batches-status').value;
+
+            const filtered = rawData.batches.filter(b => {
+                const matchSearch = b.table_name.toLowerCase().includes(search) || (b.query_sent || '').toLowerCase().includes(search);
+                const matchStatus = status === 'ALL' || b.status === status;
+                return matchSearch && matchStatus;
+            });
+
+            document.getElementById('batches-count-badge').textContent = `${filtered.length} batch(s)`;
+            const tbody = document.getElementById('batches-tbody');
+            if (!filtered.length) {
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;">Aucun batch correspondant.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = filtered.map(b => `
+            <tr>
+                <td>${b.batch_id}</td>
+                <td><strong>${b.table_name}</strong></td>
+                <td><span class="badge ${b.status === 'SUCCESS' ? 'badge-success' : 'badge-failed'}">${b.status}</span></td>
+                <td>${b.cursor_value}</td>
+                <td>${b.offset_value}</td>
+                <td><strong>${b.records_count}</strong></td>
+                <td>${b.duration_ms} ms</td>
+                <td><code style="font-size:11px;">${b.query_sent || '-'}</code></td>
+                <td>${formatDate(b.created_at)}</td>
+            </tr>
+        `).join('');
+        }
+
+        async function loadSchemaHistory() {
+            try {
+                const res = await fetch('/api/schema-history');
+                rawData.schema = await res.json();
+                renderSchemaTable();
+            } catch (e) { console.error(e); }
+        }
+
+        function renderSchemaTable() {
+            const search = document.getElementById('filter-schema-search').value.toLowerCase();
+            const filtered = rawData.schema.filter(s => {
+                return s.table_name.toLowerCase().includes(search) || s.column_name.toLowerCase().includes(search);
+            });
+
+            const tbody = document.getElementById('schema-tbody');
+            if (!filtered.length) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;">Aucune dérive de schéma trouvée.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = filtered.map(d => `
+            <tr>
+                <td>${d.id}</td>
+                <td><strong>${d.table_name}</strong></td>
+                <td><code>${d.column_name}</code></td>
+                <td>${d.data_type || '-'}</td>
+                <td>${formatDate(d.detected_at)}</td>
+                <td><code>${d.detected_in_run_id || '-'}</code></td>
+                <td><span class="badge badge-running">${d.status}</span></td>
+            </tr>
+        `).join('');
+        }
+
+        function openOverrideModal(tableName) {
+            if (!currentUser.logged_in || currentUser.role !== 'ADMIN') {
+                alert('Accès refusé: Seul un utilisateur connecté en tant qu’ADMIN peut déclencher un fallback.');
+                return;
+            }
+            document.getElementById('modal-table-name').value = tableName;
+            document.getElementById('modal-title').textContent = `Activer Fallback pour : ${tableName}`;
+            document.getElementById('modal-custom-watermark').value = '';
+            document.getElementById('override-modal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('override-modal').classList.remove('active');
+        }
+
+        async function submitOverride() {
+            const tableName = document.getElementById('modal-table-name').value;
+            const customWatermark = document.getElementById('modal-custom-watermark').value;
+
+            try {
+                const res = await fetch('/api/checkpoints/override', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        table_name: tableName,
+                        custom_watermark: customWatermark ? parseInt(customWatermark) : null,
+                        activate_fallback: true
+                    })
+                });
+
+                if (res.ok) {
+                    closeModal();
+                    refreshAllData();
+                } else {
+                    const err = await res.json();
+                    alert('Erreur: ' + err.error);
+                }
+            } catch (e) { alert('Erreur lors de l’envoi de l’override: ' + e); }
+        }
+
+        function refreshAllData() {
+            checkUserSession();
+        }
+
+        async function loadFallbackEvents() {
+            try {
+                const res = await fetch('/api/fallback-events');
+                rawData.fallbackEvents = await res.json();
+                renderFallbackEventsTable();
+            } catch (e) { console.error(e); }
+        }
+
+        function renderFallbackEventsTable() {
+            const tbody = document.getElementById('fallback-events-tbody');
+            if (!rawData.fallbackEvents || !rawData.fallbackEvents.length) {
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">Aucun événement fallback en file d\'attente.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = rawData.fallbackEvents.map(ev => {
+                let badgeClass = 'badge-running';
+                if (ev.status === 'COMPLETED') badgeClass = 'badge-success';
+                if (ev.status === 'FAILED') badgeClass = 'badge-failed';
+                if (ev.status === 'PENDING') badgeClass = 'badge-override';
+
+                return `
+                <tr>
+                    <td><code>${ev.event_id.substring(0, 8)}...</code></td>
+                    <td><strong>${ev.table_name}</strong></td>
+                    <td>${formatUnix(ev.start_watermark)}</td>
+                    <td>${formatUnix(ev.end_watermark)}</td>
+                    <td><span class="badge ${badgeClass}">${ev.status}</span></td>
+                    <td><strong>${ev.records_processed}</strong></td>
+                    <td style="color:#d32f2f;">${ev.error_message || '-'}</td>
+                    <td>${formatDate(ev.created_at)}</td>
+                </tr>
+                `;
+            }).join('');
+        }
+
+        function openFallbackEventModal(tableName = 'GameSchema') {
+            if (!currentUser.logged_in || currentUser.role !== 'ADMIN') {
+                alert('Accès refusé: Seul un Administrateur ADMIN peut créer un événement fallback.');
+                return;
+            }
+            if (tableName) document.getElementById('modal-fallback-table').value = tableName;
+            document.getElementById('modal-start-watermark').value = '';
+            document.getElementById('modal-end-watermark').value = '';
+            document.getElementById('fallback-modal').classList.add('active');
+        }
+
+        function closeFallbackModal() {
+            document.getElementById('fallback-modal').classList.remove('active');
+        }
+
+        async function submitFallbackEvent() {
+            const tableName = document.getElementById('modal-fallback-table').value;
+            const startWatermark = document.getElementById('modal-start-watermark').value;
+            const endWatermark = document.getElementById('modal-end-watermark').value;
+
+            if (!tableName || !startWatermark || !endWatermark) {
+                alert('Veuillez remplir tous les champs : Table, Start Watermark et End Watermark.');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/fallback-events', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        table_name: tableName,
+                        start_watermark: parseInt(startWatermark),
+                        end_watermark: parseInt(endWatermark)
+                    })
+                });
+
+                if (res.ok) {
+                    closeFallbackModal();
+                    loadFallbackEvents();
+                    alert('Événement Fallback planifié avec succès ! Le pipeline le traitera en priorité.');
+                } else {
+                    const err = await res.json();
+                    alert('Erreur: ' + err.error);
+                }
+            } catch (e) { alert('Erreur lors de la création de l’événement: ' + e); }
+        }
+
+        // Auto-init on page load
+        checkUserSession();
+        setInterval(() => {
+            if (currentUser.logged_in) {
+                loadStats();
+                loadRuns();
+                loadFallbackEvents();
+                loadCheckpoints();
+                loadBatches();
+                loadSchemaHistory();
+            }
+        }, 10000);
+    </script>
+
+</body>
+
+</html>

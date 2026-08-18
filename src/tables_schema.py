@@ -30,7 +30,7 @@ class BaseIGDBSchema(pt.Model):
     # It is used to configure the behavior of the model
     #TODO: i need to edit this later to handle soft changes my way
     model_config = {
-        "extra": 'allow', # allows IGDB to return unknown columns
+        "extra": 'ignore', # allows IGDB to return unknown columns
         "populate_by_name": True # allows instantiation by field name even if alias is set
     }
 

@@ -1,0 +1,2 @@
+2026-08-18 23:15:33,242 WARNING: couldn't stop thread 'pool-1-worker-0' within 5.0 seconds
+2026-08-18 23:15:33,243 WARNING: hint: you can try to call 'close()' explicitly or to use the pool as context manager

@@ -3,7 +3,8 @@ import json
 import traceback
 import uuid
 import time
-from sqlalchemy.engine import Engine
+from typing import Literal
+from psycopg_pool import ConnectionPool
 from src.igdb.client import extract_igdb_data
 from src.igdb.rate_limit import TokenBucket
 from src.tables_schema import *
@@ -20,60 +21,75 @@ from src.utils.database_interaction import (
     get_checkpoints,
     upsert_checkpoint,
     upsert_fallback_checkpoint,
-    log_batch
+    log_batch,
+    get_pending_fallback_events,
+    update_fallback_event_status
 )
 
 # IGDB API rate limit: 4 requests per second.
-# TokenBucket ensures we do not exceed this limit.
 bucket = TokenBucket(capacity=4, fill_rate=4)
 
 
-def _construct_tables_dict(db_engine: Engine) -> dict[type, dict]:
+def _construct_tables_dict(db_pool: ConnectionPool) -> dict[type, dict]:
     """
-    Retrieves checkpoints from Postgres and resolves starting metadata for each table class.
-    Returns:
-        dict[type, dict]: Map of Model -> {
-            "cursor": int,
-            "last_id": int,
-            "offset": int,
-            "is_override": bool
-        }
+    Checks for PENDING fallback events in logs.fallback_events first.
+    If events exist, configures tables to process the fallback window without touching checkpoints.
+    Otherwise, reads checkpoints from logs.ingestion_checkpoints.
     """
     defined_classes = BaseIGDBSchema.__subclasses__()
-    checkpoints = get_checkpoints(db_engine)
+    class_map = {cls.__name__: cls for cls in defined_classes}
+    pending_events = get_pending_fallback_events(db_pool, layer="RAW")
 
     resolved = {}
+
+    # 1. Process pending fallback events first (Event-Driven)
+    if pending_events:
+        for event in pending_events:
+            table_name = event["table_name"]
+            if table_name in class_map:
+                cls = class_map[table_name]
+                # Mark event as IN_PROGRESS
+                update_fallback_event_status(db_pool, event["event_id"], status="IN_PROGRESS")
+                resolved[cls] = {
+                    "cursor": event["start_watermark"],
+                    "end_watermark": event["end_watermark"],
+                    "last_id": 0,
+                    "offset": 0,
+                    "is_fallback_event": True,
+                    "event_id": event["event_id"]
+                }
+        if resolved:
+            return resolved
+
+    # 2. Standard continuous incremental checkpointing
+    checkpoints = get_checkpoints(db_pool, layer="RAW")
+
     for cls in defined_classes:
         name = cls.__name__
         if name not in checkpoints:
-            # Create a default checkpoint in PostgreSQL
             upsert_checkpoint(
-                engine=db_engine,
+                pool=db_pool,
                 table_name=name,
                 current_watermark=cls._starting_point,
                 last_id=0,
+                layer="RAW",
                 offset_val=0,
                 run_id=None,
                 is_override_active=False
             )
-            # Fetch newly created entry to match structure
-            checkpoints = get_checkpoints(db_engine)
+            upsert_fallback_checkpoint(db_pool, name, cls._starting_point)
+            checkpoints = get_checkpoints(db_pool, layer="RAW")
 
         ckpt = checkpoints[name]
-        if ckpt["is_override_active"]:
-            resolved[cls] = {
-                "cursor": ckpt["fallback_watermark"],
-                "last_id": 0,
-                "offset": 0,
-                "is_override": True
-            }
-        else:
-            resolved[cls] = {
-                "cursor": ckpt["current_watermark"],
-                "last_id": ckpt["last_id"],
-                "offset": ckpt["offset_val"],
-                "is_override": False
-            }
+        current_ts = ckpt["current_watermark"] if ckpt["current_watermark"] > 0 else cls._starting_point
+        resolved[cls] = {
+            "cursor": current_ts,
+            "end_watermark": None,
+            "last_id": ckpt["last_id"],
+            "offset": ckpt["offset_val"],
+            "is_fallback_event": False,
+            "event_id": None
+        }
 
     return resolved
 
@@ -100,38 +116,29 @@ def ingest_batches_to_postgres(azure_client: DataLakeServiceClient | BlobService
     pass
 
 
-def do_ingestion(azure_client: DataLakeServiceClient | BlobServiceClient, db_engine: Engine) -> None:
+def do_ingestion(azure_client: DataLakeServiceClient | BlobServiceClient, db_pool: ConnectionPool) -> None:
     """
-    Main ingestion pipeline. Iterates through all defined schemas, fetches data
-    from the IGDB API using pagination, persists raw batches to ADLS, and updates
-    the watermark state in Postgres after each page.
+    Main ingestion pipeline. Processes pending fallback events or continuous incremental watermarks,
+    fetches data from IGDB API, persists raw batches to ADLS, and updates audit state in Postgres.
     """
     run_id = str(uuid.uuid4())
-    start_ingestion_run(db_engine, run_id)
+    start_ingestion_run(db_pool, run_id, layer="RAW")
 
-    run_status = "COMPLETED"
+    run_status: Literal["COMPLETED", "FAILED"] = "COMPLETED"
     run_error = None
 
     try:
-        tables = _construct_tables_dict(db_engine)
+        tables = _construct_tables_dict(db_pool)
 
         for Model, meta in tables.items():
             cursor = meta["cursor"]
+            end_watermark = meta["end_watermark"]
             last_id = meta["last_id"]
             offset = meta["offset"]
+            is_fallback_event = meta["is_fallback_event"]
+            event_id = meta["event_id"]
             max_seen = cursor
-
-            # Consume override flag immediately in the DB if active
-            if meta["is_override"]:
-                upsert_checkpoint(
-                    engine=db_engine,
-                    table_name=Model.__name__,
-                    current_watermark=cursor,
-                    last_id=last_id,
-                    offset_val=offset,
-                    run_id=run_id,
-                    is_override_active=False
-                )
+            event_records_count = 0
 
             try:
                 while True:
@@ -142,9 +149,9 @@ def do_ingestion(azure_client: DataLakeServiceClient | BlobServiceClient, db_eng
                         last_id=last_id,
                         offset=offset
                     )
-
+                    
+                    #* logging
                     print(f"QUERY [{Model.__name__}]: {query!r}", flush=True)
-                    log_to_discord(f"QUERY [{Model.__name__}]: {query!r}", level=AlertLevel.INFO)
 
                     start_time = time.perf_counter()
                     batch = []
@@ -160,11 +167,18 @@ def do_ingestion(azure_client: DataLakeServiceClient | BlobServiceClient, db_eng
                     except Exception as extract_err:
                         batch_status = "FAILED"
                         batch_err = str(extract_err)
+                        if is_fallback_event and event_id:
+                            update_fallback_event_status(
+                                db_pool,
+                                event_id,
+                                status="FAILED",
+                                error_message=batch_err
+                            )
                         raise
                     finally:
                         elapsed_ms = int((time.perf_counter() - start_time) * 1000)
                         log_batch(
-                            engine=db_engine,
+                            pool=db_pool,
                             run_id=run_id,
                             table_name=Model.__name__,
                             layer="RAW",
@@ -178,8 +192,25 @@ def do_ingestion(azure_client: DataLakeServiceClient | BlobServiceClient, db_eng
                         )
 
                     if not batch:
-                        # Clean finish of records; update fallback state to safety point
-                        upsert_fallback_checkpoint(db_engine, Model.__name__, max_seen)
+                        if is_fallback_event and event_id:
+                            update_fallback_event_status(
+                                db_pool,
+                                event_id,
+                                status="COMPLETED",
+                                records_processed=event_records_count
+                            )
+                        else:
+                            # Standard incremental completion update
+                            upsert_checkpoint(
+                                pool=db_pool,
+                                table_name=Model.__name__,
+                                current_watermark=max_seen,
+                                last_id=last_id,
+                                layer="RAW",
+                                offset_val=0,
+                                run_id=run_id
+                            )
+                            upsert_fallback_checkpoint(db_pool, Model.__name__, max_seen)
                         break
 
                     # Validate records
@@ -191,6 +222,7 @@ def do_ingestion(azure_client: DataLakeServiceClient | BlobServiceClient, db_eng
 
                     # Persist raw page to ADLS Raw zone
                     _save_raw_batch(azure_client, Model, batch, cursor, offset)
+                    event_records_count += len(batch)
 
                     batch_max_ts = max(r["updated_at"] for r in batch)
                     batch_max_id_for_ts = max(r["id"] for r in batch if r["updated_at"] == batch_max_ts)
@@ -201,25 +233,56 @@ def do_ingestion(azure_client: DataLakeServiceClient | BlobServiceClient, db_eng
                     else:
                         last_id = max(last_id, batch_max_id_for_ts)
 
-                    # Update progressive checkpoint after every successful page
-                    upsert_checkpoint(
-                        engine=db_engine,
-                        table_name=Model.__name__,
-                        current_watermark=max_seen,
-                        last_id=last_id,
-                        offset_val=offset,
-                        run_id=run_id
-                    )
-
-                    if len(batch) < 500:
-                        # Success complete
-                        upsert_fallback_checkpoint(db_engine, Model.__name__, max_seen)
+                    # Check if reached specified end_watermark for fallback event
+                    if is_fallback_event and end_watermark and max_seen >= end_watermark:
+                        update_fallback_event_status(
+                            db_pool,
+                            event_id,
+                            status="COMPLETED",
+                            records_processed=event_records_count
+                        )
                         break
 
-                    offset += 500
-                    if offset >= 10000:
-                        cursor = max_seen
-                        offset = 0
+                    if len(batch) < 500:
+                        if is_fallback_event and event_id:
+                            update_fallback_event_status(
+                                db_pool,
+                                event_id,
+                                status="COMPLETED",
+                                records_processed=event_records_count
+                            )
+                        else:
+                            upsert_checkpoint(
+                                pool=db_pool,
+                                table_name=Model.__name__,
+                                current_watermark=max_seen,
+                                last_id=last_id,
+                                layer="RAW",
+                                offset_val=0,
+                                run_id=run_id
+                            )
+                            upsert_fallback_checkpoint(db_pool, Model.__name__, max_seen)
+                        break
+
+                    # Compute next resume state for progressive pagination
+                    next_offset = offset + 500
+                    next_cursor = max_seen if next_offset >= 10000 else cursor
+                    if next_offset >= 10000:
+                        next_offset = 0
+
+                    if not is_fallback_event:
+                        upsert_checkpoint(
+                            pool=db_pool,
+                            table_name=Model.__name__,
+                            current_watermark=next_cursor,
+                            last_id=last_id,
+                            layer="RAW",
+                            offset_val=next_offset,
+                            run_id=run_id
+                        )
+
+                    offset = next_offset
+                    cursor = next_cursor
 
             except Exception as e:
                 run_status = "FAILED"
@@ -236,4 +299,4 @@ def do_ingestion(azure_client: DataLakeServiceClient | BlobServiceClient, db_eng
         run_error = str(e)
         log_to_discord(f"Pipeline orchestration run failed: {e}", level=AlertLevel.ERROR)
     finally:
-        complete_ingestion_run(db_engine, run_id, run_status, run_error)
+        complete_ingestion_run(db_pool, run_id, run_status, run_error)
