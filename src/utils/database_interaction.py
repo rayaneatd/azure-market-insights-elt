@@ -197,13 +197,13 @@ def get_checkpoints(pool: ConnectionPool, layer: Literal["RAW", "ANALYTICS"] = "
         with conn.cursor(row_factory=namedtuple_row) as cur:
             cur.execute(query, {"layer": layer})
             
-            return {
-                row.table_name: {
-                    "current_watermark": row.current_watermark,
-                    "fallback_watermark": row.fallback_watermark,
-                    "last_id": row.last_id,
-                    "offset_val": row.offset_val,
-                    "is_override_active": row.is_override_active
+            return { 
+                row.table_name: { # pyrefly: ignore 
+                    "current_watermark": row.current_watermark, # pyrefly: ignore 
+                    "fallback_watermark": row.fallback_watermark, # pyrefly: ignore 
+                    "last_id": row.last_id, # pyrefly: ignore 
+                    "offset_val": row.offset_val, # pyrefly: ignore 
+                    "is_override_active": row.is_override_active # pyrefly: ignore 
                 }
                 for row in cur.fetchall()
             }
