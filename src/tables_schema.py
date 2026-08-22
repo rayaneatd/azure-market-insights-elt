@@ -1,6 +1,6 @@
 import patito as pt
 from typing import ClassVar
-
+from hashlib import sha256
 
 # we can modify the version of the API by changing this variable
 #! NEVER PUT A SLASH AT THE END OF THE URL
@@ -87,12 +87,21 @@ class BaseIGDBSchema(pt.Model):
 
         return " ".join(query_parts)
 
+    @classmethod
+    def get_signature(cls) -> str:
+        """
+        Generates a signature of the table schema.
+        """
+        return sha256(" ".join(
+            info.alias or name
+            for name, info in cls.model_fields.items()
+        ).encode()).hexdigest()
 
 # 1. Endpoint: /games
 class GameSchema(BaseIGDBSchema):
     _endpoint = "/games"
 
-    id: int
+    id: int = pt.Field(unique=True)
     name: str
     slug: str | None = None
     summary: str | None = None
@@ -136,7 +145,7 @@ class GameSchema(BaseIGDBSchema):
 class ReleaseDateSchema(BaseIGDBSchema):
     _endpoint = "/release_dates"
 
-    id: int
+    id: int = pt.Field(unique=True)
     game: int | None = None
     platform: int | None = None
     date: int | None = None           # Timestamp Unix
@@ -155,7 +164,7 @@ class ReleaseDateSchema(BaseIGDBSchema):
 class GenreSchema(BaseIGDBSchema):
     _endpoint = "/genres"
 
-    id: int
+    id: int = pt.Field(unique=True)
     name: str
     slug: str | None = None
 
@@ -168,7 +177,7 @@ class GenreSchema(BaseIGDBSchema):
 class PlatformSchema(BaseIGDBSchema):
     _endpoint = "/platforms"
 
-    id: int
+    id: int = pt.Field(unique=True)
     name: str
     slug: str | None = None
     abbreviation: str | None = None
@@ -185,7 +194,7 @@ class PlatformSchema(BaseIGDBSchema):
 class CompanySchema(BaseIGDBSchema):
     _endpoint = "/companies"
 
-    id: int
+    id: int = pt.Field(unique=True)
     name: str
     slug: str | None = None
     description: str | None = None

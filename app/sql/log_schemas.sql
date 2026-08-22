@@ -61,15 +61,17 @@ CREATE TABLE IF NOT EXISTS logs.batch_logs (
 CREATE TABLE IF NOT EXISTS logs.schema_history (
     id BIGSERIAL PRIMARY KEY,
     table_name VARCHAR(100) NOT NULL,
-    column_name VARCHAR(100) NOT NULL,
-    data_type VARCHAR(50),
+    schema_hash VARCHAR(100) NOT NULL,
+    columns_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb,
+    changed_columns TEXT [],
     detected_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     detected_in_run_id UUID REFERENCES logs.ingestion_runs(run_id),
     included_at TIMESTAMPTZ,
     -- popule quand patch dans tables_schema.py
     status VARCHAR(30) NOT NULL DEFAULT 'NEW_COLUMN',
     -- 'NEW_COLUMN', 'BREAKING_CHANGE', 'QUARANTINE'
-    action_taken TEXT
+    action_taken TEXT,
+    UNIQUE (table_name, schema_hash)
 );
 -- Indexes for performance tuning in operational dashboard / API
 CREATE INDEX IF NOT EXISTS idx_ingestion_runs_status ON logs.ingestion_runs(status, layer);

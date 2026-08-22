@@ -8,7 +8,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from flask import Flask, jsonify, render_template, request, session
-from src.database_auth import init_database_engine
+from src.database.auth import init_database_engine
 from app.backend.functions import (
     authenticate_user_hardcoded,
     get_dashboard_stats,

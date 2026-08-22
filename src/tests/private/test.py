@@ -1,4 +1,4 @@
-from src.utils.log_messages import log_to_discord, AlertLevel
+from src.tables_schema import *
 
-
-log_to_discord("ADHD IS LIFE", AlertLevel.INFO)
+print(GameSchema.get_signature())
+print(GenreSchema.get_signature())

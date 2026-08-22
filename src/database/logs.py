@@ -1,0 +1,207 @@
+from psycopg_pool import ConnectionPool
+from psycopg.rows import namedtuple_row
+from typing import Literal
+
+from .core import _execute
+
+
+# ================================================================
+# Ingestion
+# ================================================================
+
+def start_ingestion_run(
+    pool: ConnectionPool, 
+    run_id: str, 
+    error_message: str | None = None,
+    layer: str | None = None
+) -> None:
+    """
+    Logs the start of an orchestration run.
+    
+    Args:
+        pool: The database connection pool.
+        run_id: The run ID.
+        error_message: Optional initial error message.
+        layer: The pipeline layer name.
+    """
+    query = """
+        INSERT INTO logs.ingestion_runs (run_id, started_at, status, error_message, layer)
+        VALUES (%(run_id)s, CURRENT_TIMESTAMP, 'RUNNING', %(error_message)s, %(layer)s)
+        ON CONFLICT (run_id) DO NOTHING;
+    """
+    _execute(pool, query, {"run_id": run_id, "error_message": error_message, "layer": layer})
+
+
+def complete_ingestion_run(
+    pool: ConnectionPool, 
+    run_id: str, 
+    status: Literal["COMPLETED", "FAILED"], 
+    error_message: str | None = None
+) -> None:
+    """
+    Logs the completion or failure of an orchestration run.
+    
+    Args:
+        pool: The database connection pool.
+        run_id: The run ID.
+        status: The status of the run ('COMPLETED' or 'FAILED').
+        error_message: The error message if failed.
+    """
+    query = """
+        UPDATE logs.ingestion_runs
+        SET completed_at = CURRENT_TIMESTAMP,
+            status = %(status)s,
+            error_message = %(error_message)s
+        WHERE run_id = %(run_id)s;
+    """
+    _execute(pool, query, {
+        "run_id": run_id,
+        "status": status,
+        "error_message": error_message
+    })
+
+
+def log_batch(
+    pool: ConnectionPool,
+    run_id: str,
+    table_name: str,
+    layer: str,
+    status: str,
+    cursor_value: int,
+    offset_value: int,
+    records_count: int,
+    duration_ms: int,
+    query_sent: str,
+    error_message: str | None = None
+) -> None:
+    """Logs an individual batch execution details."""
+    query = """
+        INSERT INTO logs.batch_logs (
+            run_id, table_name, layer, status, cursor_value, offset_value, records_count, duration_ms, query_sent, error_message
+        )
+        VALUES (
+            %(run_id)s, %(table_name)s, %(layer)s, %(status)s, %(cursor_value)s, %(offset_value)s, %(records_count)s, %(duration_ms)s, %(query_sent)s, %(error_message)s
+        );
+    """
+    _execute(pool, query, {
+        "run_id": run_id,
+        "table_name": table_name,
+        "layer": layer,
+        "status": status,
+        "cursor_value": cursor_value,
+        "offset_value": offset_value,
+        "records_count": records_count,
+        "duration_ms": duration_ms,
+        "query_sent": query_sent,
+        "error_message": error_message
+    })
+
+
+def log_schema_change(
+    pool: ConnectionPool,
+    table_name: str,
+    column_name: str,
+    data_type: str,
+    run_id: str,
+    status: str = "NEW_COLUMN",
+    action_taken: str | None = None
+) -> None:
+    """Logs schema changes or drifts found during parsing."""
+    query = """
+        INSERT INTO logs.schema_history (table_name, column_name, data_type, detected_in_run_id, status, action_taken)
+        VALUES (%(table_name)s, %(column_name)s, %(data_type)s, %(run_id)s, %(status)s, %(action_taken)s)
+        ON CONFLICT DO NOTHING;
+    """
+    _execute(pool, query, {
+        "table_name": table_name,
+        "column_name": column_name,
+        "data_type": data_type,
+        "run_id": run_id,
+        "status": status,
+        "action_taken": action_taken
+    })
+
+
+# ================================================================
+# Checkpoints
+# ================================================================
+
+def get_checkpoints(pool: ConnectionPool, layer: Literal["RAW", "ANALYTICS"] = "RAW") -> dict[str, dict]:
+    """
+    Retrieves all table checkpoints from Postgres.
+    
+    Args:
+        pool: The database connection pool.
+        layer: The pipeline layer ('RAW' or 'ANALYTICS').
+    """
+    query = """
+        SELECT table_name, current_watermark, fallback_watermark, last_id, offset_val, is_override_active
+        FROM logs.ingestion_checkpoints
+        WHERE layer = %(layer)s;
+    """
+    
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=namedtuple_row) as cur:
+            cur.execute(query, {"layer": layer})
+            
+            return { 
+                row.table_name: { # pyrefly: ignore 
+                    "current_watermark": row.current_watermark, # pyrefly: ignore 
+                    "fallback_watermark": row.fallback_watermark, # pyrefly: ignore 
+                    "last_id": row.last_id, # pyrefly: ignore 
+                    "offset_val": row.offset_val, # pyrefly: ignore 
+                    "is_override_active": row.is_override_active # pyrefly: ignore 
+                }
+                for row in cur.fetchall()
+            }
+
+
+def upsert_checkpoint(
+    pool: ConnectionPool,
+    table_name: str,
+    current_watermark: int,
+    last_id: int,
+    layer: Literal["RAW", "ANALYTICS"],
+    offset_val: int,
+    run_id: str | None,
+    is_override_active: bool = False
+) -> None:
+    """
+    Upserts checkpoint status for a table.
+    
+    Args:
+        pool: The database connection pool.
+        table_name: The table name.
+        current_watermark: The current watermark timestamp.
+        last_id: The last processed ID.
+        layer: The pipeline layer.
+        offset_val: The pagination offset value.
+        run_id: The run ID.
+        is_override_active: Whether override mode is active.
+    """
+    query = """
+        INSERT INTO logs.ingestion_checkpoints (
+            table_name, current_watermark, last_id, layer, offset_val, last_successful_run_id, is_override_active, updated_at
+        )
+        VALUES (
+            %(table_name)s, %(current_watermark)s, %(last_id)s, %(layer)s, %(offset_val)s, %(run_id)s, %(is_override_active)s, CURRENT_TIMESTAMP
+        )
+        ON CONFLICT (table_name) DO UPDATE SET
+            current_watermark = EXCLUDED.current_watermark,
+            last_id = EXCLUDED.last_id,
+            layer = EXCLUDED.layer,
+            offset_val = EXCLUDED.offset_val,
+            last_successful_run_id = EXCLUDED.last_successful_run_id,
+            is_override_active = EXCLUDED.is_override_active,
+            updated_at = CURRENT_TIMESTAMP;
+    """
+    _execute(pool, query, {
+        "table_name": table_name,
+        "current_watermark": current_watermark,
+        "last_id": last_id,
+        "layer": layer,
+        "offset_val": offset_val,
+        "run_id": run_id,
+        "is_override_active": is_override_active
+    })
+

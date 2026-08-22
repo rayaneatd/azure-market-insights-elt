@@ -71,31 +71,3 @@ def read_from_raw(service_client, container, value):
     except Exception as err:
         log_to_discord(str(err), level=AlertLevel.ERROR)
         raise
-
-
-# ================================================================
-# Postgres interaction functions
-# ================================================================
-
-    # function to write into the analytics layer
-def write_into_analytics(engine, table_name: str, values):
-    """
-    Write data into the analytics layer.
-    
-    Args:
-        engine (create_engine): The postgres engine.
-        table_name (str): The table name.
-        values: The values to write into the table.
-    """
-    pass
-
-    # function to read from the analytics layer
-def read_from_analytics(engine, table_name: str):
-    """
-    Read data from the analytics layer.
-    
-    Args:
-        engine (create_engine): The postgres engine.
-        table_name (str): The table name.
-    """
-    pass

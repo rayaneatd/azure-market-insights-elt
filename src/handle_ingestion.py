@@ -15,7 +15,7 @@ from src.utils.datalake_interaction import (
     write_into_raw,
     Containers
 )
-from src.utils.database_interaction import (
+from src.database import (
     start_ingestion_run,
     complete_ingestion_run,
     get_checkpoints,
