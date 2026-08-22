@@ -11,7 +11,7 @@ from src.tables_schema import *
 from src.utils.log_messages import AlertLevel, log_to_discord
 from azure.storage.filedatalake import DataLakeServiceClient
 from azure.storage.blob import BlobServiceClient
-from src.utils.datalake_interaction import (
+from src.datalake.functions import (
     write_into_raw,
     Containers
 )

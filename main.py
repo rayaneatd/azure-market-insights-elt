@@ -1,6 +1,6 @@
 import os
 # pyrefly: ignore [missing-import]
-from src.datalake_service_client import init_datalake_service_client
+from src.datalake.service_client import init_datalake_service_client
 from src.database.auth import init_database_engine
 from src.utils.log_messages import log_to_discord, AlertLevel  # pyrefly: ignore [missing-import]
 from src.database import execute_sql_from_file
